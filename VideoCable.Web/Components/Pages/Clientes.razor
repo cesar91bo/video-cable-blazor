@@ -1,0 +1,515 @@
+@page "/clientes"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+@using Microsoft.AspNetCore.Components.Web
+@inject AppDbContext DbContext
+
+<PageTitle>Clientes</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Clientes</h1>
+        <p class="text-muted mb-0">Administración de abonados del sistema.</p>
+    </div>
+
+    <button class="btn btn-primary" @onclick="NuevoCliente">
+        Nuevo cliente
+    </button>
+</div>
+
+<div class="card mt-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Buscar</label>
+                <input class="form-control"
+                    placeholder="Buscar por nombre, código, documento o CUIT..."
+                    value="@busqueda"
+                    @oninput="OnBusquedaInput"
+                    @onkeydown="OnBusquedaKeyDown" />
+            </div>
+
+            <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-outline-primary" @onclick="CargarClientes">
+                    Buscar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(mensaje))
+{
+    <div class="alert alert-success mt-3">
+        @mensaje
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger mt-3">
+        @error
+    </div>
+}
+
+@if (erroresValidacion.Any())
+{
+    <div class="alert alert-warning mt-3">
+        <ul class="mb-0">
+            @foreach (var item in erroresValidacion)
+            {
+                <li>@item</li>
+            }
+        </ul>
+    </div>
+}
+
+@if (editando)
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            @(clienteEditando.Id == 0 ? "Nuevo cliente" : "Editar cliente")
+        </div>
+
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label">Código</label>
+                    <InputNumber class="form-control" @bind-Value="clienteEditando.Codigo" readonly />
+                </div>
+
+                <div class="col-md-5">
+                    <label class="form-label">Nombre</label>
+                    <input class="form-control" @bind="clienteEditando.Nombre" />
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label">Tipo doc.</label>
+                    <select class="form-select" @bind="clienteEditando.TipoDocumento">
+                        @foreach (var tipo in Enum.GetValues<TipoDocumentoCliente>())
+                        {
+                            <option value="@tipo">@tipo</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Nro. documento</label>
+                    <input class="form-control" @bind="clienteEditando.NumeroDocumento" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">CUIT</label>
+                    <input class="form-control" @bind="clienteEditando.Cuit" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Condición IVA</label>
+                    <select class="form-select" @bind="clienteEditando.RegimenImpositivo">
+                        @foreach (var tipo in Enum.GetValues<RegimenImpositivo>())
+                        {
+                            <option value="@tipo">@tipo</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Dirección</label>
+                    <input class="form-control" @bind="clienteEditando.Direccion" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Localidad</label>
+                    <input class="form-control" @bind="clienteEditando.Localidad" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Teléfono</label>
+                    <input class="form-control" @bind="clienteEditando.Telefono" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Email</label>
+                    <input class="form-control" @bind="clienteEditando.Email" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Observaciones</label>
+                    <input class="form-control" @bind="clienteEditando.Observaciones" />
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" @bind="clienteEditando.Activo" />
+                        <label class="form-check-label">Activo</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4 d-flex gap-2">
+                <button class="btn btn-success" @onclick="GuardarCliente">
+                    Guardar
+                </button>
+
+                <button class="btn btn-outline-secondary" @onclick="CancelarEdicion">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (clientes is null)
+{
+    <p class="mt-4">Cargando clientes...</p>
+}
+else
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            Clientes registrados
+        </div>
+
+        <div class="table-responsive grid-scroll">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Nombre</th>
+                        <th>Documento</th>
+                        <th>CUIT</th>
+                        <th>Dirección</th>
+                        <th>Teléfono</th>
+                        <th>Activo</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var cliente in clientes)
+                    {
+                        <tr>
+                            <td>@cliente.Codigo</td>
+                            <td>@cliente.Nombre</td>
+                            <td>@cliente.NumeroDocumento</td>
+                            <td>@cliente.Cuit</td>
+                            <td>@cliente.Direccion</td>
+                            <td>@cliente.Telefono</td>
+                            <td>
+                                @if (cliente.Activo)
+                                {
+                                    <span class="badge bg-success">Sí</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">No</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => EditarCliente(cliente.Id)">
+                                    Editar
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Cliente>? clientes;
+    private Cliente clienteEditando = new();
+    private bool editando;
+    private string? mensaje;
+    private string? error;
+    private string? busqueda;
+    private List<string> erroresValidacion = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarClientes();
+    }
+
+    private async Task CargarClientes()
+    {
+        error = null;
+
+        var query = DbContext.Clientes
+            .AsNoTracking()
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(busqueda))
+        {
+            var texto = busqueda.Trim();
+
+            query = query.Where(x =>
+                x.Nombre.Contains(texto) ||
+                x.Codigo.ToString().Contains(texto) ||
+                (x.NumeroDocumento != null && x.NumeroDocumento.Contains(texto)) ||
+                (x.Cuit != null && x.Cuit.Contains(texto)));
+        }
+
+        clientes = await query
+            .OrderBy(x => x.Nombre)
+            .Take(200)
+            .ToListAsync();
+    }
+
+    private async Task NuevoCliente()
+    {
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+
+        var proximoCodigo = await ObtenerProximoCodigoCliente();
+
+        clienteEditando = new Cliente
+        {
+            Codigo = proximoCodigo,
+            Nombre = "",
+            TipoDocumento = TipoDocumentoCliente.DNI,
+            RegimenImpositivo = RegimenImpositivo.ConsumidorFinal,
+            Direccion = "",
+            Localidad = "Pampa del Indio",
+            Activo = true,
+            CreatedAt = DateTime.Now
+        };
+
+        editando = true;
+    }
+
+    private async Task<int> ObtenerProximoCodigoCliente()
+    {
+        var ultimoCodigo = await DbContext.Clientes
+            .AsNoTracking()
+            .Select(x => (int?)x.Codigo)
+            .MaxAsync();
+
+        return (ultimoCodigo ?? 0) + 1;
+    }
+
+    private async Task OnBusquedaInput(ChangeEventArgs e)
+{
+    busqueda = e.Value?.ToString();
+
+    if (string.IsNullOrWhiteSpace(busqueda) || busqueda.Trim().Length >= 3)
+    {
+        await CargarClientes();
+    }
+}
+
+private async Task OnBusquedaKeyDown(KeyboardEventArgs e)
+{
+    if (e.Key == "Enter")
+    {
+        await CargarClientes();
+    }
+}
+
+    private async Task EditarCliente(int id)
+    {
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+
+        var cliente = await DbContext.Clientes
+            .AsNoTracking()
+            .FirstAsync(x => x.Id == id);
+
+        clienteEditando = new Cliente
+        {
+            Id = cliente.Id,
+            Codigo = cliente.Codigo,
+            Nombre = cliente.Nombre,
+            TipoDocumento = cliente.TipoDocumento,
+            NumeroDocumento = cliente.NumeroDocumento,
+            Cuit = cliente.Cuit,
+            RegimenImpositivo = cliente.RegimenImpositivo,
+            Direccion = cliente.Direccion,
+            Localidad = cliente.Localidad,
+            Telefono = cliente.Telefono,
+            Email = cliente.Email,
+            Observaciones = cliente.Observaciones,
+            Activo = cliente.Activo,
+            CreatedAt = cliente.CreatedAt,
+            CreatedByUserId = cliente.CreatedByUserId,
+            IsDeleted = cliente.IsDeleted,
+            RowVersion = cliente.RowVersion
+        };
+
+        editando = true;
+    }
+
+    private async Task GuardarCliente()
+    {
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+
+        ValidarCliente();
+
+        await ValidarDuplicadosCliente();
+
+        if (erroresValidacion.Any())
+            return;
+
+        try
+        {
+            NormalizarCliente();
+
+            if (clienteEditando.Id == 0)
+            {
+                clienteEditando.CreatedAt = DateTime.Now;
+                DbContext.Clientes.Add(clienteEditando);
+            }
+            else
+            {
+                var cliente = await DbContext.Clientes
+                    .FirstAsync(x => x.Id == clienteEditando.Id);
+
+                cliente.Codigo = clienteEditando.Codigo;
+                cliente.Nombre = clienteEditando.Nombre;
+                cliente.TipoDocumento = clienteEditando.TipoDocumento;
+                cliente.NumeroDocumento = clienteEditando.NumeroDocumento;
+                cliente.Cuit = clienteEditando.Cuit;
+                cliente.RegimenImpositivo = clienteEditando.RegimenImpositivo;
+                cliente.Direccion = clienteEditando.Direccion;
+                cliente.Localidad = clienteEditando.Localidad;
+                cliente.Telefono = clienteEditando.Telefono;
+                cliente.Email = clienteEditando.Email;
+                cliente.Observaciones = clienteEditando.Observaciones;
+                cliente.Activo = clienteEditando.Activo;
+                cliente.UpdatedAt = DateTime.Now;
+            }
+
+            await DbContext.SaveChangesAsync();
+
+            editando = false;
+            mensaje = "Cliente guardado correctamente.";
+
+            await CargarClientes();
+        }
+        catch (DbUpdateException ex)
+        {
+            error = "No se pudo guardar el cliente porque hay un dato duplicado o inválido.";
+            Console.WriteLine(ex.ToString());
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al guardar el cliente: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+    }
+
+    private async Task ValidarDuplicadosCliente()
+{
+    var existeCodigo = await DbContext.Clientes
+        .AsNoTracking()
+        .AnyAsync(x =>
+            x.Id != clienteEditando.Id &&
+            x.Codigo == clienteEditando.Codigo);
+
+    if (existeCodigo)
+        erroresValidacion.Add("Ya existe otro cliente con el mismo código.");
+
+    if (!string.IsNullOrWhiteSpace(clienteEditando.NumeroDocumento))
+    {
+        var existeDocumento = await DbContext.Clientes
+            .AsNoTracking()
+            .AnyAsync(x =>
+                x.Id != clienteEditando.Id &&
+                x.TipoDocumento == clienteEditando.TipoDocumento &&
+                x.NumeroDocumento == clienteEditando.NumeroDocumento.Trim());
+
+        if (existeDocumento)
+            erroresValidacion.Add("Ya existe otro cliente con el mismo tipo y número de documento.");
+    }
+
+    if (!string.IsNullOrWhiteSpace(clienteEditando.Cuit))
+    {
+        var existeCuit = await DbContext.Clientes
+            .AsNoTracking()
+            .AnyAsync(x =>
+                x.Id != clienteEditando.Id &&
+                x.Cuit == clienteEditando.Cuit.Trim());
+
+        if (existeCuit)
+            erroresValidacion.Add("Ya existe otro cliente con el mismo CUIT.");
+    }
+}
+
+    private void ValidarCliente()
+    {
+        if (clienteEditando.Codigo <= 0)
+            erroresValidacion.Add("El código del cliente no es válido.");
+
+        if (string.IsNullOrWhiteSpace(clienteEditando.Nombre))
+            erroresValidacion.Add("El nombre es obligatorio.");
+
+        if (string.IsNullOrWhiteSpace(clienteEditando.Direccion))
+            erroresValidacion.Add("La dirección es obligatoria.");
+
+        if (!string.IsNullOrWhiteSpace(clienteEditando.Cuit) && clienteEditando.Cuit.Length != 11)
+            erroresValidacion.Add("El CUIT debe tener 11 números, sin guiones.");
+
+        if (!string.IsNullOrWhiteSpace(clienteEditando.Email) && !clienteEditando.Email.Contains("@"))
+            erroresValidacion.Add("El email no parece válido.");
+    }
+
+    private void NormalizarCliente()
+    {
+        clienteEditando.Nombre = clienteEditando.Nombre.Trim();
+        clienteEditando.Direccion = clienteEditando.Direccion.Trim();
+
+        clienteEditando.NumeroDocumento = string.IsNullOrWhiteSpace(clienteEditando.NumeroDocumento)
+            ? null
+            : clienteEditando.NumeroDocumento.Trim();
+
+        clienteEditando.Cuit = string.IsNullOrWhiteSpace(clienteEditando.Cuit)
+            ? null
+            : clienteEditando.Cuit.Trim();
+
+        clienteEditando.Localidad = string.IsNullOrWhiteSpace(clienteEditando.Localidad)
+            ? null
+            : clienteEditando.Localidad.Trim();
+
+        clienteEditando.Telefono = string.IsNullOrWhiteSpace(clienteEditando.Telefono)
+            ? null
+            : clienteEditando.Telefono.Trim();
+
+        clienteEditando.Email = string.IsNullOrWhiteSpace(clienteEditando.Email)
+            ? null
+            : clienteEditando.Email.Trim();
+
+        clienteEditando.Observaciones = string.IsNullOrWhiteSpace(clienteEditando.Observaciones)
+            ? null
+            : clienteEditando.Observaciones.Trim();
+    }
+
+    private void CancelarEdicion()
+    {
+        editando = false;
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+    }
+}
+
+<style>
+    .grid-scroll {
+        max-height: 520px;
+        overflow-y: auto;
+    }
+
+    .grid-scroll thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #f8f9fa;
+    }
+</style>

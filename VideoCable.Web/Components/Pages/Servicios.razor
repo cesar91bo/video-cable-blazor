@@ -1,0 +1,322 @@
+@page "/servicios"
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+
+@rendermode InteractiveServer
+@inject AppDbContext DbContext
+
+<PageTitle>Servicios</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Servicios / Planes</h1>
+        <p class="text-muted mb-0">Catálogo de planes mensuales y cargos puntuales.</p>
+    </div>
+
+    <button class="btn btn-primary" @onclick="NuevoServicio">
+        Nuevo servicio
+    </button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(mensaje))
+{
+    <div class="alert alert-success mt-3">
+        @mensaje
+    </div>
+}
+
+@if (editando)
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            @(servicioEditando.Id == 0 ? "Nuevo servicio" : "Editar servicio")
+        </div>
+
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Código</label>
+                    <input class="form-control" @bind="servicioEditando.Codigo" />
+                </div>
+
+                <div class="col-md-5">
+                    <label class="form-label">Descripción</label>
+                    <input class="form-control" @bind="servicioEditando.Descripcion" />
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label">Tipo servicio</label>
+                    <select class="form-select" @bind="servicioEditando.TipoServicio">
+                        @foreach (var tipo in Enum.GetValues<TipoServicio>())
+                        {
+                            <option value="@tipo">@tipo</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label">Tipo cobro</label>
+                    <select class="form-select" @bind="servicioEditando.TipoCobro">
+                        @foreach (var tipo in Enum.GetValues<TipoCobroServicio>())
+                        {
+                            <option value="@tipo">@tipo</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Precio actual</label>
+                    <InputNumber class="form-control" @bind-Value="servicioEditando.PrecioActual" />
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" @bind="servicioEditando.Activo" />
+                        <label class="form-check-label">Activo</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4 d-flex gap-2">
+                <button class="btn btn-success" @onclick="GuardarServicio">
+                    Guardar
+                </button>
+
+                <button class="btn btn-outline-secondary" @onclick="CancelarEdicion">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (servicios is null)
+{
+    <p class="mt-4">Cargando servicios...</p>
+}
+else
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            Planes mensuales
+        </div>
+
+        <div class="table-responsive grid-scroll">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Descripción</th>
+                        <th>Tipo</th>
+                        <th class="text-end">Precio</th>
+                        <th>Activo</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var servicio in servicios.Where(x => x.TipoCobro == TipoCobroServicio.Mensual))
+                    {
+                        <tr>
+                            <td>@servicio.Codigo</td>
+                            <td>@servicio.Descripcion</td>
+                            <td>@servicio.TipoServicio</td>
+                            <td class="text-end">@servicio.PrecioActual.ToString("C0")</td>
+                            <td>
+                                @if (servicio.Activo)
+                                {
+                                    <span class="badge bg-success">Sí</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">No</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => EditarServicio(servicio.Id)">
+                                    Editar
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header">
+            Cargos puntuales
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Descripción</th>
+                        <th>Tipo</th>
+                        <th class="text-end">Precio</th>
+                        <th>Activo</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var servicio in servicios.Where(x => x.TipoCobro == TipoCobroServicio.Puntual))
+                    {
+                        <tr>
+                            <td>@servicio.Codigo</td>
+                            <td>@servicio.Descripcion</td>
+                            <td>@servicio.TipoServicio</td>
+                            <td class="text-end">@servicio.PrecioActual.ToString("C0")</td>
+                            <td>
+                                @if (servicio.Activo)
+                                {
+                                    <span class="badge bg-success">Sí</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">No</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => EditarServicio(servicio.Id)">
+                                    Editar
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<ServicioPlan>? servicios;
+    private ServicioPlan servicioEditando = new();
+    private bool editando;
+    private string? mensaje;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarServicios();
+    }
+
+    private async Task CargarServicios()
+    {
+        servicios = await DbContext.ServiciosPlan
+            .AsNoTracking()
+            .OrderBy(x => x.TipoCobro)
+            .ThenBy(x => x.Descripcion)
+            .ToListAsync();
+    }
+
+    private void NuevoServicio()
+    {
+        mensaje = null;
+
+        servicioEditando = new ServicioPlan
+        {
+            TipoServicio = TipoServicio.Internet,
+            TipoCobro = TipoCobroServicio.Mensual,
+            Activo = true,
+            PrecioActual = 0,
+            CreatedAt = DateTime.Now
+        };
+
+        editando = true;
+    }
+
+    private async Task EditarServicio(int id)
+    {
+        mensaje = null;
+
+        var servicio = await DbContext.ServiciosPlan
+            .AsNoTracking()
+            .FirstAsync(x => x.Id == id);
+
+        servicioEditando = new ServicioPlan
+        {
+            Id = servicio.Id,
+            Codigo = servicio.Codigo,
+            Descripcion = servicio.Descripcion,
+            TipoServicio = servicio.TipoServicio,
+            TipoCobro = servicio.TipoCobro,
+            PrecioActual = servicio.PrecioActual,
+            Activo = servicio.Activo,
+            CreatedAt = servicio.CreatedAt,
+            CreatedByUserId = servicio.CreatedByUserId,
+            IsDeleted = servicio.IsDeleted,
+            RowVersion = servicio.RowVersion
+        };
+
+        editando = true;
+    }
+
+    private async Task GuardarServicio()
+    {
+        mensaje = null;
+
+        if (string.IsNullOrWhiteSpace(servicioEditando.Descripcion))
+            return;
+
+        if (servicioEditando.Id == 0)
+        {
+            servicioEditando.CreatedAt = DateTime.Now;
+
+            DbContext.ServiciosPlan.Add(servicioEditando);
+
+            DbContext.ServiciosPrecio.Add(new ServicioPrecio
+            {
+                ServicioPlan = servicioEditando,
+                Precio = servicioEditando.PrecioActual,
+                VigenteDesde = DateTime.Today,
+                Motivo = "Alta manual desde sistema",
+                CreatedAt = DateTime.Now
+            });
+        }
+        else
+        {
+            var servicio = await DbContext.ServiciosPlan
+                .FirstAsync(x => x.Id == servicioEditando.Id);
+
+            servicio.Codigo = servicioEditando.Codigo;
+            servicio.Descripcion = servicioEditando.Descripcion;
+            servicio.TipoServicio = servicioEditando.TipoServicio;
+            servicio.TipoCobro = servicioEditando.TipoCobro;
+            servicio.PrecioActual = servicioEditando.PrecioActual;
+            servicio.Activo = servicioEditando.Activo;
+            servicio.UpdatedAt = DateTime.Now;
+        }
+
+        await DbContext.SaveChangesAsync();
+
+        editando = false;
+        mensaje = "Servicio guardado correctamente.";
+
+        await CargarServicios();
+    }
+
+    private void CancelarEdicion()
+    {
+        editando = false;
+        mensaje = null;
+    }
+}
+
+<style>
+    .grid-scroll {
+        max-height: 360px;
+        overflow-y: auto;
+    }
+
+    .grid-scroll thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #f8f9fa;
+    }
+</style>

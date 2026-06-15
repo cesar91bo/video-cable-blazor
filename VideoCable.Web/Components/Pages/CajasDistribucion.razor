@@ -1,0 +1,264 @@
+@page "/cajas-distribucion"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Infrastructure.Data
+
+@inject AppDbContext DbContext
+
+<PageTitle>Cajas de distribución</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Cajas de distribución</h1>
+        <p class="text-muted mb-0">Cajas físicas/red donde se conectan los abonados.</p>
+    </div>
+
+    <button class="btn btn-primary" @onclick="NuevaCaja">
+        Nueva caja
+    </button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(mensaje))
+{
+    <div class="alert alert-success mt-3">
+        @mensaje
+    </div>
+}
+
+@if (editando)
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            @(cajaEditando.Id == 0 ? "Nueva caja" : "Editar caja")
+        </div>
+
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Código</label>
+                    <input class="form-control" @bind="cajaEditando.Codigo" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Descripción</label>
+                    <input class="form-control" @bind="cajaEditando.Descripcion" />
+                </div>
+
+                <div class="col-md-5">
+                    <label class="form-label">Dirección / Referencia</label>
+                    <input class="form-control" @bind="cajaEditando.Direccion" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Zona</label>
+                    <input class="form-control" @bind="cajaEditando.Zona" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Latitud</label>
+                    <InputNumber class="form-control" @bind-Value="cajaEditando.Latitud" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Longitud</label>
+                    <InputNumber class="form-control" @bind-Value="cajaEditando.Longitud" />
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" @bind="cajaEditando.Activa" />
+                        <label class="form-check-label">Activa</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-4 d-flex gap-2">
+                <button class="btn btn-success" @onclick="GuardarCaja">
+                    Guardar
+                </button>
+
+                <button class="btn btn-outline-secondary" @onclick="CancelarEdicion">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (cajas is null)
+{
+    <p class="mt-4">Cargando cajas...</p>
+}
+else
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            Cajas registradas
+        </div>
+
+        <div class="table-responsive grid-scroll">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Código</th>
+                        <th>Descripción</th>
+                        <th>Dirección / Referencia</th>
+                        <th>Zona</th>
+                        <th>Activa</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var caja in cajas)
+                    {
+                        <tr>
+                            <td>@caja.Codigo</td>
+                            <td>@caja.Descripcion</td>
+                            <td>@caja.Direccion</td>
+                            <td>@caja.Zona</td>
+                            <td>
+                                @if (caja.Activa)
+                                {
+                                    <span class="badge bg-success">Sí</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">No</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => EditarCaja(caja.Id)">
+                                    Editar
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private List<CajaDistribucion>? cajas;
+    private CajaDistribucion cajaEditando = new();
+    private bool editando;
+    private string? mensaje;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarCajas();
+    }
+
+    private async Task CargarCajas()
+    {
+        cajas = await DbContext.CajasDistribucion
+            .AsNoTracking()
+            .OrderBy(x => x.Codigo)
+            .ToListAsync();
+    }
+
+    private void NuevaCaja()
+    {
+        mensaje = null;
+
+        cajaEditando = new CajaDistribucion
+        {
+            Codigo = "",
+            Descripcion = "",
+            Direccion = "",
+            Zona = "",
+            Activa = true,
+            CreatedAt = DateTime.Now
+        };
+
+        editando = true;
+    }
+
+    private async Task EditarCaja(int id)
+    {
+        mensaje = null;
+
+        var caja = await DbContext.CajasDistribucion
+            .AsNoTracking()
+            .FirstAsync(x => x.Id == id);
+
+        cajaEditando = new CajaDistribucion
+        {
+            Id = caja.Id,
+            Codigo = caja.Codigo,
+            Descripcion = caja.Descripcion,
+            Direccion = caja.Direccion,
+            Zona = caja.Zona,
+            Latitud = caja.Latitud,
+            Longitud = caja.Longitud,
+            Activa = caja.Activa,
+            CreatedAt = caja.CreatedAt,
+            CreatedByUserId = caja.CreatedByUserId,
+            IsDeleted = caja.IsDeleted,
+            RowVersion = caja.RowVersion
+        };
+
+        editando = true;
+    }
+
+    private async Task GuardarCaja()
+    {
+        mensaje = null;
+
+        if (string.IsNullOrWhiteSpace(cajaEditando.Codigo))
+            return;
+
+        if (string.IsNullOrWhiteSpace(cajaEditando.Descripcion))
+            return;
+
+        if (cajaEditando.Id == 0)
+        {
+            cajaEditando.CreatedAt = DateTime.Now;
+            DbContext.CajasDistribucion.Add(cajaEditando);
+        }
+        else
+        {
+            var caja = await DbContext.CajasDistribucion
+                .FirstAsync(x => x.Id == cajaEditando.Id);
+
+            caja.Codigo = cajaEditando.Codigo;
+            caja.Descripcion = cajaEditando.Descripcion;
+            caja.Direccion = cajaEditando.Direccion;
+            caja.Zona = cajaEditando.Zona;
+            caja.Latitud = cajaEditando.Latitud;
+            caja.Longitud = cajaEditando.Longitud;
+            caja.Activa = cajaEditando.Activa;
+            caja.UpdatedAt = DateTime.Now;
+        }
+
+        await DbContext.SaveChangesAsync();
+
+        editando = false;
+        mensaje = "Caja guardada correctamente.";
+
+        await CargarCajas();
+    }
+
+    private void CancelarEdicion()
+    {
+        editando = false;
+        mensaje = null;
+    }
+}
+
+<style>
+    .grid-scroll {
+        max-height: 520px;
+        overflow-y: auto;
+    }
+
+    .grid-scroll thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #f8f9fa;
+    }
+</style>

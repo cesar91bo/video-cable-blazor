@@ -1,0 +1,44 @@
+# Build
+bin/
+obj/
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider
+.idea/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# NuGet
+*.nupkg
+packages/
+
+# EF temporary
+MigrationsBackup/
+
+# Secrets / local config
+appsettings.Development.json
+*.pfx
+*.p12
+*.cer
+*.key
+
+# Database files
+*.mdf
+*.ldf
+*.bak
+
+# Publish
+publish/
+wwwroot/lib/

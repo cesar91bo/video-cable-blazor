@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="VideoCable.Domain/VideoCable.Domain.csproj" />
+  <Project Path="VideoCable.Infrastructure/VideoCable.Infrastructure.csproj" />
+  <Project Path="VideoCable.Web/VideoCable.Web.csproj" />
+</Solution>
