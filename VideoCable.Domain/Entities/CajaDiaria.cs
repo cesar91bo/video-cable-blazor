@@ -11,6 +11,8 @@ public class CajaDiaria : AuditableEntity
 
     public decimal MontoInicial { get; set; }
 
+    public string? ObservacionesApertura { get; set; }
+
     public DateTime? FechaCierre { get; set; }
 
     public int? UsuarioCierreId { get; set; }
@@ -21,9 +23,9 @@ public class CajaDiaria : AuditableEntity
 
     public decimal? Diferencia { get; set; }
 
-    public EstadoCajaDiaria Estado { get; set; } = EstadoCajaDiaria.Abierta;
+    public string? ObservacionesCierre { get; set; }
 
-    public string? Observaciones { get; set; }
+    public EstadoCajaDiaria Estado { get; set; } = EstadoCajaDiaria.Abierta;
 
     public ICollection<Pago> Pagos { get; set; } = new List<Pago>();
     public ICollection<MovimientoCaja> Movimientos { get; set; } = new List<MovimientoCaja>();

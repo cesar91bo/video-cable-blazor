@@ -6,6 +6,8 @@
 @using VideoCable.Domain.Enums
 @using VideoCable.Infrastructure.Data
 @using Microsoft.AspNetCore.Components.Web
+@using VideoCable.Web.Helpers
+
 @inject AppDbContext DbContext
 
 <PageTitle>Clientes</PageTitle>
@@ -92,7 +94,7 @@
                     <select class="form-select" @bind="clienteEditando.TipoDocumento">
                         @foreach (var tipo in Enum.GetValues<TipoDocumentoCliente>())
                         {
-                            <option value="@tipo">@tipo</option>
+                            <option value="@tipo">@tipo.GetDisplayName()</option>
                         }
                     </select>
                 </div>
@@ -112,7 +114,7 @@
                     <select class="form-select" @bind="clienteEditando.RegimenImpositivo">
                         @foreach (var tipo in Enum.GetValues<RegimenImpositivo>())
                         {
-                            <option value="@tipo">@tipo</option>
+                            <option value="@tipo">@tipo.GetDisplayName()</option>
                         }
                     </select>
                 </div>

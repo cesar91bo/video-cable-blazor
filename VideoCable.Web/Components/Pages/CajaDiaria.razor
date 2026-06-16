@@ -1,0 +1,431 @@
+﻿@page "/caja-diaria"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+@using CajaDiariaEntity = VideoCable.Domain.Entities.CajaDiaria
+
+@inject AppDbContext DbContext
+
+<PageTitle>Caja diaria</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Caja diaria</h1>
+        <p class="text-muted mb-0">Apertura, movimientos y cierre de caja.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(mensaje))
+{
+    <div class="alert alert-success mt-3">@mensaje</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger mt-3">@error</div>
+}
+
+@if (erroresValidacion.Any())
+{
+    <div class="alert alert-warning mt-3">
+        <ul class="mb-0">
+            @foreach (var item in erroresValidacion)
+            {
+                <li>@item</li>
+            }
+        </ul>
+    </div>
+}
+
+@if (cajaAbierta is null)
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            Abrir caja
+        </div>
+
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Monto inicial</label>
+                    <InputNumber class="form-control" @bind-Value="montoInicial" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Observaciones</label>
+                    <input class="form-control" @bind="observacionesApertura" />
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-primary" @onclick="AbrirCaja">
+                        Abrir caja
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row mt-4">
+        <div class="col-md-3">
+            <div class="card border-success">
+                <div class="card-body">
+                    <div class="text-muted">Estado</div>
+                    <h4 class="mb-0">Abierta</h4>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted">Fecha apertura</div>
+                    <h5 class="mb-0">@cajaAbierta.FechaApertura.ToString("dd/MM/yyyy HH:mm")</h5>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted">Monto inicial</div>
+                    <h5 class="mb-0">@cajaAbierta.MontoInicial.ToString("C0")</h5>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <div class="text-muted">Monto sistema</div>
+                    <h5 class="mb-0">@montoSistema.ToString("C0")</h5>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header">
+            Registrar movimiento manual
+        </div>
+
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-2">
+                    <label class="form-label">Tipo</label>
+                    <select class="form-select" @bind="tipoMovimiento">
+                        <option value="@TipoMovimientoCaja.Ingreso">Ingreso</option>
+                        <option value="@TipoMovimientoCaja.Egreso">Egreso</option>
+                        <option value="@TipoMovimientoCaja.Ajuste">Ajuste</option>
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Monto</label>
+                    <InputNumber class="form-control" @bind-Value="montoMovimiento" />
+                </div>
+
+                <div class="col-md-5">
+                    <label class="form-label">Concepto</label>
+                    <input class="form-control" @bind="conceptoMovimiento" />
+                </div>
+
+                <div class="col-md-2 d-flex align-items-end">
+                    <button class="btn btn-outline-primary" @onclick="RegistrarMovimiento">
+                        Registrar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header">
+            Cerrar caja
+        </div>
+
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Monto final informado</label>
+                    <InputNumber class="form-control" @bind-Value="montoFinalInformado" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Observaciones cierre</label>
+                    <input class="form-control" @bind="observacionesCierre" />
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-danger" @onclick="CerrarCaja">
+                        Cerrar caja
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="card mt-4">
+    <div class="card-header">
+        Movimientos de caja
+    </div>
+
+    <div class="table-responsive grid-scroll">
+        <table class="table table-striped table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th>Concepto</th>
+                    <th class="text-end">Monto</th>
+                    <th>Anulado</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var movimiento in movimientos)
+                {
+                    <tr>
+                        <td>@movimiento.Fecha.ToString("dd/MM/yyyy HH:mm")</td>
+                        <td>@movimiento.Tipo</td>
+                        <td>@movimiento.Concepto</td>
+                        <td class="text-end">@movimiento.Monto.ToString("C0")</td>
+                        <td>
+                            @if (movimiento.Anulado)
+                            {
+                                <span class="badge bg-secondary">Sí</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">No</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@code {
+    private CajaDiariaEntity? cajaAbierta;
+    private List<MovimientoCaja> movimientos = new();
+
+    private decimal montoInicial;
+    private string? observacionesApertura;
+
+    private TipoMovimientoCaja tipoMovimiento = TipoMovimientoCaja.Ingreso;
+    private decimal montoMovimiento;
+    private string? conceptoMovimiento;
+
+    private decimal montoFinalInformado;
+    private string? observacionesCierre;
+
+    private decimal montoSistema;
+
+    private string? mensaje;
+    private string? error;
+    private List<string> erroresValidacion = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarCaja();
+    }
+
+    private async Task CargarCaja()
+    {
+        cajaAbierta = await DbContext.CajasDiarias
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Estado == EstadoCajaDiaria.Abierta);
+
+        if (cajaAbierta is not null)
+        {
+            movimientos = await DbContext.MovimientosCaja
+                .AsNoTracking()
+                .Where(x => x.CajaDiariaId == cajaAbierta.Id)
+                .OrderByDescending(x => x.Fecha)
+                .ToListAsync();
+
+            CalcularMontoSistema();
+        }
+        else
+        {
+            movimientos = new();
+            montoSistema = 0;
+        }
+    }
+
+    private async Task AbrirCaja()
+    {
+        LimpiarMensajes();
+
+        if (montoInicial < 0)
+            erroresValidacion.Add("El monto inicial no puede ser negativo.");
+
+        if (erroresValidacion.Any())
+            return;
+
+        var yaHayCajaAbierta = await DbContext.CajasDiarias
+            .AnyAsync(x => x.Estado == EstadoCajaDiaria.Abierta);
+
+        if (yaHayCajaAbierta)
+        {
+            error = "Ya existe una caja abierta.";
+            return;
+        }
+
+        var caja = new CajaDiariaEntity
+        {
+            FechaApertura = DateTime.Now,
+            MontoInicial = montoInicial,
+            Estado = EstadoCajaDiaria.Abierta,
+            ObservacionesApertura = observacionesApertura,
+            CreatedAt = DateTime.Now
+        };
+
+        DbContext.CajasDiarias.Add(caja);
+
+        if (montoInicial > 0)
+        {
+            DbContext.MovimientosCaja.Add(new MovimientoCaja
+            {
+                CajaDiaria = caja,
+                Tipo = TipoMovimientoCaja.Ajuste,
+                Fecha = DateTime.Now,
+                Monto = montoInicial,
+                Concepto = "Monto inicial de caja",
+                CreatedAt = DateTime.Now
+            });
+        }
+
+        await DbContext.SaveChangesAsync();
+
+        mensaje = "Caja abierta correctamente.";
+        montoInicial = 0;
+        observacionesApertura = null;
+
+        await CargarCaja();
+    }
+
+    private async Task RegistrarMovimiento()
+    {
+        LimpiarMensajes();
+
+        if (cajaAbierta is null)
+        {
+            error = "No hay una caja abierta.";
+            return;
+        }
+
+        if (montoMovimiento <= 0)
+            erroresValidacion.Add("El monto debe ser mayor a cero.");
+
+        if (string.IsNullOrWhiteSpace(conceptoMovimiento))
+            erroresValidacion.Add("El concepto es obligatorio.");
+
+        if (erroresValidacion.Any())
+            return;
+
+        DbContext.MovimientosCaja.Add(new MovimientoCaja
+        {
+            CajaDiariaId = cajaAbierta.Id,
+            Tipo = tipoMovimiento,
+            Fecha = DateTime.Now,
+            Monto = montoMovimiento,
+            Concepto = conceptoMovimiento.Trim(),
+            CreatedAt = DateTime.Now
+        });
+
+        await DbContext.SaveChangesAsync();
+
+        mensaje = "Movimiento registrado correctamente.";
+        montoMovimiento = 0;
+        conceptoMovimiento = null;
+        tipoMovimiento = TipoMovimientoCaja.Ingreso;
+
+        await CargarCaja();
+    }
+
+    private async Task CerrarCaja()
+    {
+        LimpiarMensajes();
+
+        if (cajaAbierta is null)
+        {
+            error = "No hay una caja abierta.";
+            return;
+        }
+
+        if (montoFinalInformado < 0)
+            erroresValidacion.Add("El monto final informado no puede ser negativo.");
+
+        if (erroresValidacion.Any())
+            return;
+
+        var caja = await DbContext.CajasDiarias
+            .FirstAsync(x => x.Id == cajaAbierta.Id);
+
+        CalcularMontoSistema();
+
+        caja.FechaCierre = DateTime.Now;
+        caja.MontoFinalInformado = montoFinalInformado;
+        caja.MontoSistema = montoSistema;
+        caja.Diferencia = montoFinalInformado - montoSistema;
+        caja.ObservacionesCierre = observacionesCierre;
+        caja.Estado = EstadoCajaDiaria.Cerrada;
+        caja.UpdatedAt = DateTime.Now;
+
+        await DbContext.SaveChangesAsync();
+
+        mensaje = $"Caja cerrada correctamente. Diferencia: {(montoFinalInformado - montoSistema).ToString("C0")}";
+
+        montoFinalInformado = 0;
+        observacionesCierre = null;
+
+        await CargarCaja();
+    }
+
+    private void CalcularMontoSistema()
+    {
+        if (cajaAbierta is null)
+        {
+            montoSistema = 0;
+            return;
+        }
+
+        var ingresos = movimientos
+            .Where(x => !x.Anulado && (x.Tipo == TipoMovimientoCaja.Ingreso || x.Tipo == TipoMovimientoCaja.Cobro || x.Tipo == TipoMovimientoCaja.Ajuste))
+            .Sum(x => x.Monto);
+
+        var egresos = movimientos
+            .Where(x => !x.Anulado && x.Tipo == TipoMovimientoCaja.Egreso)
+            .Sum(x => x.Monto);
+
+        montoSistema = ingresos - egresos;
+    }
+
+    private void LimpiarMensajes()
+    {
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+    }
+}
+
+<style>
+    .grid-scroll {
+        max-height: 420px;
+        overflow-y: auto;
+    }
+
+        .grid-scroll thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f8f9fa;
+        }
+</style>

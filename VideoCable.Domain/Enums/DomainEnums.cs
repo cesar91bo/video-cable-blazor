@@ -1,7 +1,10 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace VideoCable.Domain.Enums;
 
 public enum TipoDocumentoCliente
 {
+    [Display(Name = "Sin documento")]
     SinDocumento = 0,
     DNI = 1,
     CUIT = 2,
@@ -12,11 +15,15 @@ public enum TipoDocumentoCliente
 
 public enum RegimenImpositivo
 {
+    [Display(Name = "Responsable Inscripto")]
     ResponsableInscripto = 1,
+    [Display(Name = "Responsable No Inscripto")]
     ResponsableNoInscripto = 2,
     Exento = 3,
+    [Display(Name = "Consumidor Final")]
     ConsumidorFinal = 4,
     Monotributista = 5,
+    [Display(Name = "No Categorizado")]
     NoCategorizado = 6
 }
 
@@ -25,6 +32,7 @@ public enum TipoServicio
     Video = 1,
     Fibra = 2,
     Internet = 3,
+    [Display(Name = "Internet + TV")]
     InternetTv = 4,
     Otro = 99
 }
@@ -38,19 +46,29 @@ public enum EstadoSuscripcionTipo
 
 public enum TipoComprobante
 {
+    [Display(Name = "Factura A")]
     FacturaA = 1,
+    [Display(Name = "Factura B")]
     FacturaB = 6,
+    [Display(Name = "Factura C")]
     FacturaC = 11,
+    [Display(Name = "Factura X")] 
     FacturaX = 99,
+    [Display(Name = "Nota de Crédito A")]
     NotaCreditoA = 3,
+    [Display(Name = "Nota de Crédito B")]
     NotaCreditoB = 8,
+    [Display(Name = "Nota de Débito A")]
     NotaDebitoA = 2,
+    [Display(Name = "Nota de Débito B")]
     NotaDebitoB = 7
 }
 
 public enum EstadoFiscalFactura
 {
+    [Display(Name = "No Requiere Autorización")]
     NoRequiereAutorizacion = 0,
+    [Display(Name = "Pendiente de Autorización")]
     PendienteAutorizacion = 1,
     Autorizada = 2,
     Rechazada = 3,

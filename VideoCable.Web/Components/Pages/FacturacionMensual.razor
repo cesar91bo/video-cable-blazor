@@ -1,0 +1,367 @@
+﻿@page "/facturacion-mensual"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+@using VideoCable.Web.Helpers
+
+@inject AppDbContext DbContext
+
+<PageTitle>Facturación mensual</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Facturación mensual</h1>
+        <p class="text-muted mb-0">Generación interna de facturas por suscripciones activas.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(mensaje))
+{
+    <div class="alert alert-success mt-3">@mensaje</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger mt-3">@error</div>
+}
+
+@if (erroresValidacion.Any())
+{
+    <div class="alert alert-warning mt-3">
+        <ul class="mb-0">
+            @foreach (var item in erroresValidacion)
+            {
+                <li>@item</li>
+            }
+        </ul>
+    </div>
+}
+
+<div class="card mt-4">
+    <div class="card-header">
+        Período a facturar
+    </div>
+
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-2">
+                <label class="form-label">Mes</label>
+                <select class="form-select" @bind="periodoMes">
+                    @for (var mes = 1; mes <= 12; mes++)
+                    {
+                        <option value="@mes">@mes.ToString("00")</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label">Año</label>
+                <InputNumber class="form-control" @bind-Value="periodoAnio" />
+            </div>
+
+            <div class="col-md-4 d-flex align-items-end gap-2">
+                <button class="btn btn-primary" @onclick="GenerarFacturas">
+                    Generar facturas
+                </button>
+
+                <button class="btn btn-outline-secondary" @onclick="CargarFacturasPeriodo">
+                    Consultar período
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (resultadoGeneracion is not null)
+{
+    <div class="row mt-4">
+        <div class="col-md-4">
+            <div class="card border-success">
+                <div class="card-body">
+                    <div class="text-muted">Facturas generadas</div>
+                    <h3>@resultadoGeneracion.Generadas</h3>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card border-warning">
+                <div class="card-body">
+                    <div class="text-muted">Omitidas por duplicado</div>
+                    <h3>@resultadoGeneracion.Omitidas</h3>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card border-primary">
+                <div class="card-body">
+                    <div class="text-muted">Suscripciones evaluadas</div>
+                    <h3>@resultadoGeneracion.TotalSuscripciones</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (facturas is null)
+{
+    <p class="mt-4">Cargando facturas...</p>
+}
+else
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            Facturas del período @periodoMes.ToString("00")/@periodoAnio
+        </div>
+
+        <div class="table-responsive grid-scroll">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Cliente</th>
+                        <th>Servicio</th>
+                        <th>Caja</th>
+                        <th>Estado cobranza</th>
+                        <th>Estado fiscal</th>
+                        <th class="text-end">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var factura in facturas)
+                    {
+                        <tr>
+                            <td>@factura.FechaEmision.ToString("dd/MM/yyyy")</td>
+                            <td>@factura.ClienteNombreSnapshot</td>
+                            <td>@factura.ServicioDescripcionSnapshot</td>
+                            <td>@factura.CajaDescripcionSnapshot</td>
+                            <td>
+                                @if (factura.EstadoCobranza == EstadoCobranzaFactura.Pendiente)
+                                {
+                                    <span class="badge bg-warning text-dark">Pendiente</span>
+                                }
+                                else if (factura.EstadoCobranza == EstadoCobranzaFactura.Parcial)
+                                {
+                                    <span class="badge bg-info text-dark">Parcial</span>
+                                }
+                                else if (factura.EstadoCobranza == EstadoCobranzaFactura.Pagada)
+                                {
+                                    <span class="badge bg-success">Pagada</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">Anulada</span>
+                                }
+                            </td>
+                            <td>@factura.EstadoFiscal.GetDisplayName()</td>
+                            <td class="text-end">@factura.Total.ToString("C0")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private int periodoMes = DateTime.Today.Month;
+    private int periodoAnio = DateTime.Today.Year;
+
+    private List<Factura>? facturas;
+    private string? mensaje;
+    private string? error;
+    private List<string> erroresValidacion = new();
+
+    private ResultadoGeneracion? resultadoGeneracion;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarFacturasPeriodo();
+    }
+
+    private async Task GenerarFacturas()
+    {
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+        resultadoGeneracion = null;
+
+        ValidarPeriodo();
+
+        if (erroresValidacion.Any())
+            return;
+
+        try
+        {
+            var empresa = await DbContext.Empresas
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Activa);
+
+            if (empresa is null)
+            {
+                error = "No existe una empresa activa configurada.";
+                return;
+            }
+
+            var suscripciones = await DbContext.Suscripciones
+                .AsNoTracking()
+                .Include(x => x.Cliente)
+                .Include(x => x.ServicioPlan)
+                .Include(x => x.CajaDistribucion)
+                .Where(x => x.EstadoActual == EstadoSuscripcionTipo.Activo)
+                .OrderBy(x => x.Cliente.Nombre)
+                .ToListAsync();
+
+            var generadas = 0;
+            var omitidas = 0;
+
+            foreach (var suscripcion in suscripciones)
+            {
+                var yaExiste = await DbContext.Facturas
+                    .AsNoTracking()
+                    .AnyAsync(x =>
+                        x.SuscripcionId == suscripcion.Id &&
+                        x.PeriodoAnio == periodoAnio &&
+                        x.PeriodoMes == periodoMes);
+
+                if (yaExiste)
+                {
+                    omitidas++;
+                    continue;
+                }
+
+                var total = suscripcion.PrecioActualSnapshot;
+
+                var fechaEmision = DateTime.Today;
+                var fechaVencimiento = new DateTime(periodoAnio, periodoMes, 1)
+                    .AddMonths(1)
+                    .AddDays(9);
+
+                var factura = new Factura
+                {
+                    EmpresaId = empresa.Id,
+                    ClienteId = suscripcion.ClienteId,
+                    SuscripcionId = suscripcion.Id,
+
+                    PeriodoAnio = periodoAnio,
+                    PeriodoMes = periodoMes,
+
+                    FechaEmision = fechaEmision,
+                    FechaVencimiento = fechaVencimiento,
+
+                    TipoComprobante = TipoComprobante.FacturaX,
+                    EstadoFiscal = EstadoFiscalFactura.NoRequiereAutorizacion,
+                    EstadoCobranza = EstadoCobranzaFactura.Pendiente,
+
+                    Subtotal = total,
+                    ImporteIva = 0,
+                    Total = total,
+
+                    ClienteNombreSnapshot = suscripcion.Cliente.Nombre,
+                    ClienteDocumentoSnapshot = suscripcion.Cliente.NumeroDocumento,
+                    ClienteCuitSnapshot = suscripcion.Cliente.Cuit,
+                    ClienteCondicionIvaSnapshot = suscripcion.Cliente.RegimenImpositivo.ToString(),
+                    ClienteDireccionSnapshot = suscripcion.Cliente.Direccion,
+
+                    ServicioDescripcionSnapshot = suscripcion.ServicioPlan.Descripcion,
+                    ServicioTipoSnapshot = suscripcion.ServicioPlan.TipoServicio.ToString(),
+                    CajaDescripcionSnapshot = suscripcion.CajaDistribucion.Descripcion,
+
+                    EmpresaRazonSocialSnapshot = empresa.RazonSocial,
+                    EmpresaCuitSnapshot = empresa.Cuit,
+                    EmpresaCondicionIvaSnapshot = empresa.CondicionIva.ToString(),
+                    EmpresaDireccionSnapshot = empresa.Direccion,
+
+                    CreatedAt = DateTime.Now
+                };
+
+                factura.Items.Add(new FacturaItem
+                {
+                    SuscripcionId = suscripcion.Id,
+                    ServicioPlanId = suscripcion.ServicioPlanId,
+                    Descripcion = $"{suscripcion.ServicioPlan.Descripcion} - período {periodoMes:00}/{periodoAnio}",
+                    Cantidad = 1,
+                    PrecioUnitario = total,
+                    AlicuotaIva = 0,
+                    Subtotal = total,
+                    ImporteIva = 0,
+                    Total = total
+                });
+
+                DbContext.Facturas.Add(factura);
+
+                generadas++;
+            }
+
+            await DbContext.SaveChangesAsync();
+
+            resultadoGeneracion = new ResultadoGeneracion
+            {
+                Generadas = generadas,
+                Omitidas = omitidas,
+                TotalSuscripciones = suscripciones.Count
+            };
+
+            mensaje = "Proceso de facturación finalizado.";
+
+            await CargarFacturasPeriodo();
+        }
+        catch (DbUpdateException ex)
+        {
+            error = "No se pudo generar la facturación. Puede existir una factura duplicada para el período.";
+            Console.WriteLine(ex.ToString());
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al generar facturación: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+    }
+
+    private async Task CargarFacturasPeriodo()
+    {
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+
+        facturas = await DbContext.Facturas
+            .AsNoTracking()
+            .Where(x => x.PeriodoAnio == periodoAnio && x.PeriodoMes == periodoMes)
+            .OrderBy(x => x.ClienteNombreSnapshot)
+            .ToListAsync();
+    }
+
+    private void ValidarPeriodo()
+    {
+        if (periodoMes < 1 || periodoMes > 12)
+            erroresValidacion.Add("El mes no es válido.");
+
+        if (periodoAnio < 2020 || periodoAnio > 2100)
+            erroresValidacion.Add("El año no es válido.");
+    }
+
+    private class ResultadoGeneracion
+    {
+        public int Generadas { get; set; }
+        public int Omitidas { get; set; }
+        public int TotalSuscripciones { get; set; }
+    }
+}
+
+<style>
+    .grid-scroll {
+        max-height: 520px;
+        overflow-y: auto;
+    }
+
+        .grid-scroll thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f8f9fa;
+        }
+</style>

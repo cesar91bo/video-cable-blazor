@@ -25,7 +25,10 @@ public class CajaDiariaConfiguration : IEntityTypeConfiguration<CajaDiaria>
         builder.Property(x => x.Diferencia)
             .HasColumnType("decimal(18,2)");
 
-        builder.Property(x => x.Observaciones)
+        builder.Property(x => x.ObservacionesApertura)
+            .HasMaxLength(1000);
+
+        builder.Property(x => x.ObservacionesCierre)
             .HasMaxLength(1000);
 
         builder.HasIndex(x => x.Estado);

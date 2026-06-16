@@ -4,6 +4,7 @@
 @using VideoCable.Domain.Entities
 @using VideoCable.Domain.Enums
 @using VideoCable.Infrastructure.Data
+@using VideoCable.Web.Helpers
 
 @rendermode InteractiveServer
 @inject AppDbContext DbContext
@@ -52,7 +53,7 @@
                     <select class="form-select" @bind="servicioEditando.TipoServicio">
                         @foreach (var tipo in Enum.GetValues<TipoServicio>())
                         {
-                            <option value="@tipo">@tipo</option>
+                            <option value="@tipo">@tipo.GetDisplayName()</option>
                         }
                     </select>
                 </div>
@@ -62,7 +63,7 @@
                     <select class="form-select" @bind="servicioEditando.TipoCobro">
                         @foreach (var tipo in Enum.GetValues<TipoCobroServicio>())
                         {
-                            <option value="@tipo">@tipo</option>
+                            <option value="@tipo">@tipo.GetDisplayName()</option>
                         }
                     </select>
                 </div>
@@ -122,7 +123,7 @@ else
                         <tr>
                             <td>@servicio.Codigo</td>
                             <td>@servicio.Descripcion</td>
-                            <td>@servicio.TipoServicio</td>
+                            <td>@servicio.TipoServicio.GetDisplayName()</td>
                             <td class="text-end">@servicio.PrecioActual.ToString("C0")</td>
                             <td>
                                 @if (servicio.Activo)
@@ -169,7 +170,7 @@ else
                         <tr>
                             <td>@servicio.Codigo</td>
                             <td>@servicio.Descripcion</td>
-                            <td>@servicio.TipoServicio</td>
+                            <td>@servicio.TipoServicio.GetDisplayName()</td>
                             <td class="text-end">@servicio.PrecioActual.ToString("C0")</td>
                             <td>
                                 @if (servicio.Activo)
