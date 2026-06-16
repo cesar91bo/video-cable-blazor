@@ -1,0 +1,562 @@
+﻿@page "/cobranza"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+@using CajaDiariaEntity = VideoCable.Domain.Entities.CajaDiaria
+
+@inject AppDbContext DbContext
+
+<PageTitle>Cobranza</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Cobranza</h1>
+        <p class="text-muted mb-0">Registro de pagos de clientes y aplicación a facturas pendientes.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(mensaje))
+{
+    <div class="alert alert-success mt-3">@mensaje</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger mt-3">@error</div>
+}
+
+@if (erroresValidacion.Any())
+{
+    <div class="alert alert-warning mt-3">
+        <ul class="mb-0">
+            @foreach (var item in erroresValidacion)
+            {
+                <li>@item</li>
+            }
+        </ul>
+    </div>
+}
+
+@if (cajaAbierta is null)
+{
+    <div class="alert alert-warning mt-4">
+        No hay una caja diaria abierta. Para registrar pagos primero tenés que abrir caja.
+    </div>
+}
+else
+{
+    <div class="alert alert-info mt-4">
+        Caja abierta desde @cajaAbierta.FechaApertura.ToString("dd/MM/yyyy HH:mm")
+    </div>
+}
+
+<div class="card mt-4">
+    <div class="card-header">
+        Buscar cliente
+    </div>
+
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-8">
+                <label class="form-label">Cliente</label>
+                <input class="form-control"
+                       placeholder="Buscar por nombre, código, documento o CUIT..."
+                       value="@busquedaCliente"
+                       @oninput="FiltrarClientes" />
+
+                @if (clientesFiltrados.Any())
+                {
+                    <select class="form-select mt-2" @bind="clienteSeleccionadoId">
+                        <option value="0">Seleccionar cliente...</option>
+                        @foreach (var cliente in clientesFiltrados)
+                        {
+                            <option value="@cliente.Id">@cliente.Codigo - @cliente.Nombre</option>
+                        }
+                    </select>
+                }
+            </div>
+
+            <div class="col-md-4 d-flex align-items-end">
+                <button class="btn btn-primary" @onclick="CargarDeudaCliente">
+                    Ver deuda
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (clienteSeleccionado is not null)
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            Cliente seleccionado
+        </div>
+
+        <div class="card-body">
+            <strong>@clienteSeleccionado.Codigo - @clienteSeleccionado.Nombre</strong>
+            <div class="text-muted">@clienteSeleccionado.Direccion</div>
+        </div>
+    </div>
+}
+
+@if (clienteSeleccionado is not null)
+{
+    <div class="row mt-4 g-3">
+        <div class="col-md-4">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Cliente</div>
+                <div class="dashboard-value fs-4">@clienteSeleccionado.Nombre</div>
+                <div class="dashboard-subtitle">Código @clienteSeleccionado.Codigo</div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Facturas pendientes</div>
+                <div class="dashboard-value">@facturasPendientes.Count</div>
+                <div class="dashboard-subtitle">Pendientes o parciales</div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Deuda total</div>
+                <div class="dashboard-value">@deudaTotal.ToString("C0")</div>
+                <div class="dashboard-subtitle">Saldo actual del cliente</div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (facturasPendientes.Any())
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            Facturas pendientes
+        </div>
+
+        <div class="table-responsive grid-scroll">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Período</th>
+                        <th>Fecha</th>
+                        <th>Servicio</th>
+                        <th>Estado</th>
+                        <th class="text-end">Total</th>
+                        <th class="text-end">Pagado</th>
+                        <th class="text-end">Saldo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var factura in facturasPendientes)
+                    {
+                        var pagado = factura.PagoAplicaciones.Sum(x => x.MontoAplicado);
+                        var saldo = factura.Total - pagado;
+
+                        <tr>
+                            <td>@factura.PeriodoMes.ToString("00")/@factura.PeriodoAnio</td>
+                            <td>@factura.FechaEmision.ToString("dd/MM/yyyy")</td>
+                            <td>@factura.ServicioDescripcionSnapshot</td>
+                            <td>@factura.EstadoCobranza</td>
+                            <td class="text-end">@factura.Total.ToString("C0")</td>
+                            <td class="text-end">@pagado.ToString("C0")</td>
+                            <td class="text-end fw-bold">@saldo.ToString("C0")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card-body border-top">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Deuda total</label>
+                    <input class="form-control" value="@deudaTotal.ToString("C0")" readonly />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Monto cobrado</label>
+                    <div class="input-group">
+                        <InputNumber class="form-control" @bind-Value="montoCobrado" />
+                        <button class="btn btn-outline-secondary" type="button" @onclick="CobrarTotal">
+                            Total
+                        </button>
+                    </div>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Medio de pago</label>
+                    <select class="form-select" @bind="medioPago">
+                        @foreach (var medio in Enum.GetValues<MedioPagoTipo>())
+                        {
+                            <option value="@medio">@medio</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Referencia</label>
+                    <input class="form-control" @bind="referenciaPago" />
+                </div>
+
+                <div class="col-md-12">
+                    <label class="form-label">Observaciones</label>
+                    <input class="form-control" @bind="observacionesPago" />
+                </div>
+
+                <div class="col-md-12">
+                    <button class="btn btn-success" @onclick="RegistrarPago" disabled="@(cajaAbierta is null)">
+                        Registrar pago
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else if (clienteSeleccionado is not null)
+{
+    <div class="alert alert-success mt-4">
+        El cliente no tiene facturas pendientes.
+    </div>
+}
+
+@if (clienteSeleccionado is not null)
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            Últimos pagos del cliente
+        </div>
+
+        <div class="table-responsive grid-scroll-small">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Medio</th>
+                        <th>Referencia</th>
+                        <th>Observaciones</th>
+                        <th class="text-end">Importe</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var pago in pagosCliente)
+                    {
+                        var detalle = pago.Detalles.FirstOrDefault();
+
+                        <tr>
+                            <td>@pago.Fecha.ToString("dd/MM/yyyy HH:mm")</td>
+                            <td>@detalle?.MedioPago</td>
+                            <td>@detalle?.Referencia</td>
+                            <td>@pago.Observaciones</td>
+                            <td class="text-end">@pago.Total.ToString("C0")</td>
+                        </tr>
+                    }
+
+                    @if (!pagosCliente.Any())
+                    {
+                        <tr>
+                            <td colspan="5" class="text-muted">El cliente todavía no tiene pagos registrados.</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+
+@code {
+    private CajaDiariaEntity? cajaAbierta;
+
+    private List<Cliente> clientesCombo = new();
+    private List<Cliente> clientesFiltrados = new();
+
+    private int clienteSeleccionadoId;
+    private Cliente? clienteSeleccionado;
+    private string? busquedaCliente;
+
+    private List<Factura> facturasPendientes = new();
+
+    private decimal deudaTotal;
+    private decimal montoCobrado;
+    private MedioPagoTipo medioPago = MedioPagoTipo.Efectivo;
+    private string? referenciaPago;
+    private string? observacionesPago;
+
+    private string? mensaje;
+    private string? error;
+    private List<string> erroresValidacion = new();
+
+    private List<Pago> pagosCliente = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarCajaAbierta();
+        await CargarClientes();
+    }
+
+    private async Task CargarCajaAbierta()
+    {
+        cajaAbierta = await DbContext.CajasDiarias
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Estado == EstadoCajaDiaria.Abierta);
+    }
+
+    private async Task CargarClientes()
+    {
+        clientesCombo = await DbContext.Clientes
+            .AsNoTracking()
+            .Where(x => x.Activo)
+            .OrderBy(x => x.Nombre)
+            .Take(500)
+            .ToListAsync();
+
+        clientesFiltrados = clientesCombo.Take(50).ToList();
+    }
+
+    private void FiltrarClientes(ChangeEventArgs e)
+    {
+        busquedaCliente = e.Value?.ToString();
+
+        if (string.IsNullOrWhiteSpace(busquedaCliente))
+        {
+            clientesFiltrados = clientesCombo.Take(50).ToList();
+            return;
+        }
+
+        var texto = busquedaCliente.Trim();
+
+        if (texto.Length < 3)
+            return;
+
+        clientesFiltrados = clientesCombo
+            .Where(x =>
+                x.Nombre.Contains(texto, StringComparison.OrdinalIgnoreCase) ||
+                x.Codigo.ToString().Contains(texto) ||
+                (x.NumeroDocumento != null && x.NumeroDocumento.Contains(texto)) ||
+                (x.Cuit != null && x.Cuit.Contains(texto)))
+            .Take(50)
+            .ToList();
+    }
+
+    private async Task CargarDeudaCliente()
+    {
+        LimpiarMensajes();
+
+        if (clienteSeleccionadoId <= 0)
+        {
+            erroresValidacion.Add("Debe seleccionar un cliente.");
+            return;
+        }
+
+        clienteSeleccionado = await DbContext.Clientes
+            .AsNoTracking()
+            .FirstAsync(x => x.Id == clienteSeleccionadoId);
+
+        facturasPendientes = await DbContext.Facturas
+            .AsNoTracking()
+            .Include(x => x.PagoAplicaciones)
+            .Where(x =>
+                x.ClienteId == clienteSeleccionadoId &&
+                (x.EstadoCobranza == EstadoCobranzaFactura.Pendiente ||
+                 x.EstadoCobranza == EstadoCobranzaFactura.Parcial))
+            .OrderBy(x => x.PeriodoAnio)
+            .ThenBy(x => x.PeriodoMes)
+            .ToListAsync();
+
+        deudaTotal = facturasPendientes
+            .Sum(x => x.Total - x.PagoAplicaciones.Sum(p => p.MontoAplicado));
+
+        montoCobrado = deudaTotal;
+
+        pagosCliente = await DbContext.Pagos
+            .AsNoTracking()
+            .Include(x => x.Detalles)
+            .Where(x => x.ClienteId == clienteSeleccionadoId && x.Estado == EstadoPago.Registrado)
+            .OrderByDescending(x => x.Fecha)
+            .Take(10)
+            .ToListAsync();
+    }
+
+    private async Task RegistrarPago()
+    {
+        LimpiarMensajes();
+
+        if (cajaAbierta is null)
+            erroresValidacion.Add("No hay una caja abierta.");
+
+        if (clienteSeleccionado is null)
+            erroresValidacion.Add("Debe seleccionar un cliente.");
+
+        if (!facturasPendientes.Any())
+            erroresValidacion.Add("El cliente no tiene facturas pendientes.");
+
+        if (montoCobrado <= 0)
+            erroresValidacion.Add("El monto cobrado debe ser mayor a cero.");
+
+        if (montoCobrado > deudaTotal)
+            erroresValidacion.Add("El monto cobrado no puede ser mayor a la deuda total.");
+
+        if (erroresValidacion.Any())
+            return;
+
+        try
+        {
+            var montoRestante = montoCobrado;
+
+            var pago = new Pago
+            {
+                ClienteId = clienteSeleccionado!.Id,
+                CajaDiariaId = cajaAbierta!.Id,
+                Fecha = DateTime.Now,
+                Total = montoCobrado,
+                Estado = EstadoPago.Registrado,
+                Observaciones = observacionesPago,
+                CreatedAt = DateTime.Now
+            };
+
+            pago.Detalles.Add(new PagoDetalle
+            {
+                MedioPago = medioPago,
+                Monto = montoCobrado,
+                Referencia = referenciaPago
+            });
+
+            DbContext.Pagos.Add(pago);
+
+            foreach (var facturaPendiente in facturasPendientes)
+            {
+                if (montoRestante <= 0)
+                    break;
+
+                var factura = await DbContext.Facturas
+                    .Include(x => x.PagoAplicaciones)
+                    .FirstAsync(x => x.Id == facturaPendiente.Id);
+
+                var pagadoActual = factura.PagoAplicaciones.Sum(x => x.MontoAplicado);
+                var saldo = factura.Total - pagadoActual;
+
+                if (saldo <= 0)
+                    continue;
+
+                var montoAplicado = Math.Min(montoRestante, saldo);
+
+                DbContext.PagoAplicaciones.Add(new PagoAplicacion
+                {
+                    Pago = pago,
+                    FacturaId = factura.Id,
+                    MontoAplicado = montoAplicado
+                });
+
+                montoRestante -= montoAplicado;
+
+                var nuevoPagado = pagadoActual + montoAplicado;
+
+                if (nuevoPagado >= factura.Total)
+                    factura.EstadoCobranza = EstadoCobranzaFactura.Pagada;
+                else
+                    factura.EstadoCobranza = EstadoCobranzaFactura.Parcial;
+
+                factura.UpdatedAt = DateTime.Now;
+            }
+
+            DbContext.MovimientosCaja.Add(new MovimientoCaja
+            {
+                CajaDiariaId = cajaAbierta.Id,
+                Tipo = TipoMovimientoCaja.Cobro,
+                Fecha = DateTime.Now,
+                Monto = montoCobrado,
+                Concepto = $"Cobro cliente {clienteSeleccionado.Codigo} - {clienteSeleccionado.Nombre}",
+                Pago = pago,
+                CreatedAt = DateTime.Now
+            });
+
+            await DbContext.SaveChangesAsync();
+
+            mensaje = "Pago registrado correctamente.";
+
+            montoCobrado = 0;
+            referenciaPago = null;
+            observacionesPago = null;
+
+            await CargarCajaAbierta();
+            await CargarDeudaCliente();
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al registrar el pago: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+    }
+
+    private void LimpiarMensajes()
+    {
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+    }
+
+    private void CobrarTotal()
+    {
+        montoCobrado = deudaTotal;
+    }
+}
+
+<style>
+    .grid-scroll {
+        max-height: 420px;
+        overflow-y: auto;
+    }
+
+    .grid-scroll thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #f8f9fa;
+    }
+
+    .dashboard-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.85rem;
+        padding: 1.25rem;
+        min-height: 120px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+
+    .dashboard-label {
+        color: #6b7280;
+        font-size: 0.8rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04rem;
+    }
+
+    .dashboard-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin-top: 0.35rem;
+    }
+
+    .dashboard-subtitle {
+        color: #6b7280;
+        font-size: 0.9rem;
+        margin-top: 0.25rem;
+    }
+
+    .grid-scroll-small {
+        max-height: 260px;
+        overflow-y: auto;
+    }
+
+    .grid-scroll-small thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #f8f9fa;
+    }
+</style>

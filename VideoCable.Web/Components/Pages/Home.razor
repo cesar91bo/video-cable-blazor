@@ -1,7 +1,386 @@
 ﻿@page "/"
+@rendermode InteractiveServer
 
-<PageTitle>Home</PageTitle>
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+@using CajaDiariaEntity = VideoCable.Domain.Entities.CajaDiaria
 
-<h1>Hello, world!</h1>
+@inject AppDbContext DbContext
 
-Welcome to your new app.
+<PageTitle>Inicio</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Panel de control</h1>
+        <p class="text-muted mb-0">Resumen operativo del sistema.</p>
+    </div>
+
+    <button class="btn btn-outline-primary" @onclick="CargarDashboard">
+        Actualizar
+    </button>
+</div>
+
+@if (cargando)
+{
+    <p class="mt-4">Cargando información...</p>
+}
+else
+{
+    <div class="row mt-4 g-3">
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Caja diaria</div>
+                <div class="dashboard-value">
+                    @if (cajaAbierta is not null)
+                    {
+                        <span class="text-success">Abierta</span>
+                    }
+                    else
+                    {
+                        <span class="text-secondary">Cerrada</span>
+                    }
+                </div>
+                <div class="dashboard-subtitle">
+                    @if (cajaAbierta is not null)
+                    {
+                        <span>Desde @cajaAbierta.FechaApertura.ToString("HH:mm")</span>
+                    }
+                    else
+                    {
+                        <span>Sin caja abierta</span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Cobrado hoy</div>
+                <div class="dashboard-value">@cobradoHoy.ToString("C0")</div>
+                <div class="dashboard-subtitle">@cantidadPagosHoy pagos registrados</div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Facturas pendientes</div>
+                <div class="dashboard-value">@cantidadFacturasPendientes</div>
+                <div class="dashboard-subtitle">Deuda: @deudaPendiente.ToString("C0")</div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Facturado mes actual</div>
+                <div class="dashboard-value">@facturadoMes.ToString("C0")</div>
+                <div class="dashboard-subtitle">@cantidadFacturasMes facturas generadas</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4 g-3">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    Estado de facturación del mes
+                </div>
+
+                <div class="card-body">
+                    <div class="d-flex justify-content-between mb-2">
+                        <span>Pagadas</span>
+                        <strong>@facturasPagadasMes de @cantidadFacturasMes</strong>
+                    </div>
+
+                    <div class="progress mb-3" style="height: 22px;">
+                        <div class="progress-bar bg-success"
+                             style="width:@porcentajePagadasMes%">
+                            @porcentajePagadasMes.ToString("0")%
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between">
+                        <span>Pendientes / parciales</span>
+                        <strong>@facturasPendientesMes</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    Caja de hoy
+                </div>
+
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-md-4">
+                            <div class="text-muted">Ingresos</div>
+                            <h4>@ingresosCajaHoy.ToString("C0")</h4>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="text-muted">Egresos</div>
+                            <h4>@egresosCajaHoy.ToString("C0")</h4>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="text-muted">Saldo</div>
+                            <h4>@saldoCajaHoy.ToString("C0")</h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4 g-3">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    Últimos cobros
+                </div>
+
+                <div class="table-responsive grid-scroll-small">
+                    <table class="table table-striped table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Cliente</th>
+                                <th class="text-end">Importe</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var pago in ultimosPagos)
+                            {
+                                <tr>
+                                    <td>@pago.Fecha.ToString("dd/MM HH:mm")</td>
+                                    <td>@pago.ClienteNombre</td>
+                                    <td class="text-end">@pago.Total.ToString("C0")</td>
+                                </tr>
+                            }
+
+                            @if (!ultimosPagos.Any())
+                            {
+                                <tr>
+                                    <td colspan="3" class="text-muted">Sin cobros registrados.</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    Movimientos de caja de hoy
+                </div>
+
+                <div class="table-responsive grid-scroll-small">
+                    <table class="table table-striped table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Hora</th>
+                                <th>Tipo</th>
+                                <th>Concepto</th>
+                                <th class="text-end">Monto</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var mov in movimientosHoy)
+                            {
+                                <tr>
+                                    <td>@mov.Fecha.ToString("HH:mm")</td>
+                                    <td>@mov.Tipo</td>
+                                    <td>@mov.Concepto</td>
+                                    <td class="text-end">@mov.Monto.ToString("C0")</td>
+                                </tr>
+                            }
+
+                            @if (!movimientosHoy.Any())
+                            {
+                                <tr>
+                                    <td colspan="4" class="text-muted">Sin movimientos registrados hoy.</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool cargando = true;
+
+    private CajaDiariaEntity? cajaAbierta;
+
+    private decimal cobradoHoy;
+    private int cantidadPagosHoy;
+
+    private int cantidadFacturasPendientes;
+    private decimal deudaPendiente;
+
+    private decimal facturadoMes;
+    private int cantidadFacturasMes;
+    private int facturasPagadasMes;
+    private int facturasPendientesMes;
+    private decimal porcentajePagadasMes;
+
+    private decimal ingresosCajaHoy;
+    private decimal egresosCajaHoy;
+    private decimal saldoCajaHoy;
+
+    private List<PagoResumen> ultimosPagos = new();
+    private List<MovimientoCaja> movimientosHoy = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDashboard();
+    }
+
+    private async Task CargarDashboard()
+    {
+        cargando = true;
+
+        var hoy = DateTime.Today;
+        var manana = hoy.AddDays(1);
+
+        var mesActual = DateTime.Today.Month;
+        var anioActual = DateTime.Today.Year;
+
+        cajaAbierta = await DbContext.CajasDiarias
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Estado == EstadoCajaDiaria.Abierta);
+
+        var pagosHoy = await DbContext.Pagos
+            .AsNoTracking()
+            .Where(x =>
+                x.Estado == EstadoPago.Registrado &&
+                x.Fecha >= hoy &&
+                x.Fecha < manana)
+            .ToListAsync();
+
+        cobradoHoy = pagosHoy.Sum(x => x.Total);
+        cantidadPagosHoy = pagosHoy.Count;
+
+        var facturasConDeuda = await DbContext.Facturas
+            .AsNoTracking()
+            .Include(x => x.PagoAplicaciones)
+            .Where(x =>
+                x.EstadoCobranza == EstadoCobranzaFactura.Pendiente ||
+                x.EstadoCobranza == EstadoCobranzaFactura.Parcial)
+            .ToListAsync();
+
+        cantidadFacturasPendientes = facturasConDeuda.Count;
+        deudaPendiente = facturasConDeuda
+            .Sum(x => x.Total - x.PagoAplicaciones.Sum(p => p.MontoAplicado));
+
+        var facturasMes = await DbContext.Facturas
+            .AsNoTracking()
+            .Where(x => x.PeriodoAnio == anioActual && x.PeriodoMes == mesActual)
+            .ToListAsync();
+
+        cantidadFacturasMes = facturasMes.Count;
+        facturadoMes = facturasMes.Sum(x => x.Total);
+        facturasPagadasMes = facturasMes.Count(x => x.EstadoCobranza == EstadoCobranzaFactura.Pagada);
+        facturasPendientesMes = facturasMes.Count(x =>
+            x.EstadoCobranza == EstadoCobranzaFactura.Pendiente ||
+            x.EstadoCobranza == EstadoCobranzaFactura.Parcial);
+
+        porcentajePagadasMes = cantidadFacturasMes == 0
+            ? 0
+            : (decimal)facturasPagadasMes / cantidadFacturasMes * 100;
+
+        movimientosHoy = await DbContext.MovimientosCaja
+            .AsNoTracking()
+            .Where(x => x.Fecha >= hoy && x.Fecha < manana)
+            .OrderByDescending(x => x.Fecha)
+            .ToListAsync();
+
+        ingresosCajaHoy = movimientosHoy
+            .Where(x =>
+                !x.Anulado &&
+                (x.Tipo == TipoMovimientoCaja.Ingreso ||
+                 x.Tipo == TipoMovimientoCaja.Cobro ||
+                 x.Tipo == TipoMovimientoCaja.Ajuste))
+            .Sum(x => x.Monto);
+
+        egresosCajaHoy = movimientosHoy
+            .Where(x => !x.Anulado && x.Tipo == TipoMovimientoCaja.Egreso)
+            .Sum(x => x.Monto);
+
+        saldoCajaHoy = ingresosCajaHoy - egresosCajaHoy;
+
+        ultimosPagos = await DbContext.Pagos
+            .AsNoTracking()
+            .Include(x => x.Cliente)
+            .Where(x => x.Estado == EstadoPago.Registrado)
+            .OrderByDescending(x => x.Fecha)
+            .Take(10)
+            .Select(x => new PagoResumen
+            {
+                Fecha = x.Fecha,
+                ClienteNombre = x.Cliente.Nombre,
+                Total = x.Total
+            })
+            .ToListAsync();
+
+        cargando = false;
+    }
+
+    private class PagoResumen
+    {
+        public DateTime Fecha { get; set; }
+        public string ClienteNombre { get; set; } = string.Empty;
+        public decimal Total { get; set; }
+    }
+}
+
+<style>
+    .dashboard-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.85rem;
+        padding: 1.25rem;
+        min-height: 130px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+
+    .dashboard-label {
+        color: #6b7280;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04rem;
+    }
+
+    .dashboard-value {
+        font-size: 1.85rem;
+        font-weight: 700;
+        margin-top: 0.45rem;
+    }
+
+    .dashboard-subtitle {
+        color: #6b7280;
+        font-size: 0.9rem;
+        margin-top: 0.25rem;
+    }
+
+    .grid-scroll-small {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+        .grid-scroll-small thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f8f9fa;
+        }
+</style>

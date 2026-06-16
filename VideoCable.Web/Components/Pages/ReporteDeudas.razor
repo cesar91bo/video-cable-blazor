@@ -1,0 +1,388 @@
+﻿@page "/reporte-deudas"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+
+<PageTitle>Reporte de deudas</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Reporte de deudas</h1>
+        <p class="text-muted mb-0">Clientes con facturas pendientes o parciales.</p>
+    </div>
+
+    <button class="btn btn-outline-primary" @onclick="CargarReporte">
+        Actualizar
+    </button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger mt-3">@error</div>
+}
+
+<div class="card mt-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Buscar cliente</label>
+                <input class="form-control"
+                       placeholder="Nombre, código, documento o CUIT..."
+                       value="@busqueda"
+                       @oninput="OnBusquedaInput" />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Orden</label>
+                <select class="form-select" @bind="ordenReporte">
+                    <option value="deuda_desc">Mayor deuda primero</option>
+                    <option value="nombre">Nombre</option>
+                    <option value="cantidad_desc">Más facturas primero</option>
+                    <option value="periodo_antiguo">Período más antiguo</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Antigüedad</label>
+                <select class="form-select" @bind="filtroAntiguedad">
+                    <option value="todos">Todos</option>
+                    <option value="normal">Normal: 1 mes</option>
+                    <option value="atencion">Atención: 2 meses</option>
+                    <option value="riesgo">Riesgo: 3 o más meses</option>
+                </select>
+            </div>
+
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-primary w-100" @onclick="CargarReporte">
+                    Buscar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (cargando)
+{
+    <p class="mt-4">Cargando reporte...</p>
+}
+else
+{
+    <div class="row mt-4 g-3">
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Clientes con deuda</div>
+                <div class="dashboard-value">@items.Count</div>
+                <div class="dashboard-subtitle">Clientes listados</div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Deuda total</div>
+                <div class="dashboard-value">@totalDeuda.ToString("C0")</div>
+                <div class="dashboard-subtitle">Saldo pendiente</div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Facturas pendientes</div>
+                <div class="dashboard-value">@totalFacturas</div>
+                <div class="dashboard-subtitle">Pendientes o parciales</div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Promedio deuda</div>
+                <div class="dashboard-value">@promedioDeuda.ToString("C0")</div>
+                <div class="dashboard-subtitle">Por cliente</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header">
+            Clientes con deuda
+        </div>
+
+        <div class="table-responsive grid-scroll">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Cliente</th>
+                        <th>Primer período adeudado</th>
+                        <th class="text-center">Antigüedad</th>
+                        <th class="text-center">Estado deuda</th>
+                        <th class="text-end">Facturas</th>
+                        <th class="text-end">Deuda</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in items)
+                    {
+                        <tr class="@GetClaseFila(item)">
+                            <td>
+                                <div class="fw-semibold">@item.Nombre</div>
+                                <div class="text-muted small">Código @item.Codigo</div>
+                            </td>
+
+                            <td>@item.PrimerPeriodo</td>
+
+                            <td class="text-center">@item.MesesAdeudados mes/es</td>
+
+                            <td class="text-center">
+                                @if (item.MesesAdeudados >= 3)
+                                {
+                                    <span class="badge bg-danger">Riesgo / Suspender</span>
+                                }
+                                else if (item.MesesAdeudados == 2)
+                                {
+                                    <span class="badge bg-warning text-dark">Atención</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-success">Normal</span>
+                                }
+                            </td>
+
+                            <td class="text-end">@item.CantidadFacturas</td>
+                            <td class="text-end fw-bold">@item.Deuda.ToString("C0")</td>
+
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-primary" @onclick="() => IrACobranza()">
+                                    Ir a cobranza
+                                </button>
+                            </td>
+                        </tr>
+                    }
+
+                    @if (!items.Any())
+                    {
+                        <tr>
+                            <td colspan="7" class="text-muted">
+                                No hay clientes con deuda para los filtros seleccionados.
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private bool cargando = true;
+    private string? error;
+    private string? busqueda;
+    private string ordenReporte = "deuda_desc";
+    private string filtroAntiguedad = "todos";
+
+    private List<DeudaClienteItem> items = new();
+
+    private decimal totalDeuda;
+    private int totalFacturas;
+    private decimal promedioDeuda;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarReporte();
+    }
+
+    private async Task OnBusquedaInput(ChangeEventArgs e)
+    {
+        busqueda = e.Value?.ToString();
+
+        if (string.IsNullOrWhiteSpace(busqueda) || busqueda.Trim().Length >= 3)
+        {
+            await CargarReporte();
+        }
+    }
+
+    private async Task CargarReporte()
+    {
+        cargando = true;
+        error = null;
+
+        try
+        {
+            var facturas = await DbContext.Facturas
+                .AsNoTracking()
+                .Include(x => x.Cliente)
+                .Include(x => x.PagoAplicaciones)
+                .Where(x =>
+                    x.EstadoCobranza == EstadoCobranzaFactura.Pendiente ||
+                    x.EstadoCobranza == EstadoCobranzaFactura.Parcial)
+                .ToListAsync();
+
+            var query = facturas
+                .Select(x => new
+                {
+                    Factura = x,
+                    Pagado = x.PagoAplicaciones.Sum(p => p.MontoAplicado),
+                    Saldo = x.Total - x.PagoAplicaciones.Sum(p => p.MontoAplicado)
+                })
+                .Where(x => x.Saldo > 0);
+
+            if (!string.IsNullOrWhiteSpace(busqueda))
+            {
+                var texto = busqueda.Trim();
+
+                query = query.Where(x =>
+                    x.Factura.Cliente.Nombre.Contains(texto, StringComparison.OrdinalIgnoreCase) ||
+                    x.Factura.Cliente.Codigo.ToString().Contains(texto) ||
+                    (x.Factura.Cliente.NumeroDocumento != null && x.Factura.Cliente.NumeroDocumento.Contains(texto)) ||
+                    (x.Factura.Cliente.Cuit != null && x.Factura.Cliente.Cuit.Contains(texto)));
+            }
+
+            items = query
+                .GroupBy(x => x.Factura.ClienteId)
+                .Select(g =>
+                {
+                    var primera = g
+                        .OrderBy(x => x.Factura.PeriodoAnio)
+                        .ThenBy(x => x.Factura.PeriodoMes)
+                        .First();
+
+                    var ultima = g
+                        .OrderByDescending(x => x.Factura.PeriodoAnio)
+                        .ThenByDescending(x => x.Factura.PeriodoMes)
+                        .First();
+
+                    var cliente = primera.Factura.Cliente;
+
+                    var mesesAdeudados = g
+                        .Select(x => new { x.Factura.PeriodoAnio, x.Factura.PeriodoMes })
+                        .Distinct()
+                        .Count();
+
+                    return new DeudaClienteItem
+                    {
+                        ClienteId = cliente.Id,
+                        Codigo = cliente.Codigo,
+                        Nombre = cliente.Nombre,
+                        Telefono = cliente.Telefono,
+                        Documento = !string.IsNullOrWhiteSpace(cliente.Cuit)
+                            ? cliente.Cuit
+                            : cliente.NumeroDocumento,
+                        CantidadFacturas = g.Count(),
+                        MesesAdeudados = mesesAdeudados,
+                        Deuda = g.Sum(x => x.Saldo),
+                        PrimerPeriodo = $"{primera.Factura.PeriodoMes:00}/{primera.Factura.PeriodoAnio}",
+                        UltimoPeriodo = $"{ultima.Factura.PeriodoMes:00}/{ultima.Factura.PeriodoAnio}",
+                        PrimerAnio = primera.Factura.PeriodoAnio,
+                        PrimerMes = primera.Factura.PeriodoMes
+                    };
+                })
+                .ToList();
+
+            items = filtroAntiguedad switch
+            {
+                "normal" => items.Where(x => x.MesesAdeudados == 1).ToList(),
+                "atencion" => items.Where(x => x.MesesAdeudados == 2).ToList(),
+                "riesgo" => items.Where(x => x.MesesAdeudados >= 3).ToList(),
+                _ => items
+            };
+
+            items = ordenReporte switch
+            {
+                "nombre" => items.OrderBy(x => x.Nombre).ToList(),
+                "cantidad_desc" => items.OrderByDescending(x => x.CantidadFacturas).ThenByDescending(x => x.Deuda).ToList(),
+                "periodo_antiguo" => items.OrderBy(x => x.PrimerAnio).ThenBy(x => x.PrimerMes).ToList(),
+                _ => items.OrderByDescending(x => x.Deuda).ToList()
+            };
+
+            totalDeuda = items.Sum(x => x.Deuda);
+            totalFacturas = items.Sum(x => x.CantidadFacturas);
+            promedioDeuda = items.Any() ? totalDeuda / items.Count : 0;
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al cargar el reporte: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+
+        cargando = false;
+    }
+
+    private string GetClaseFila(DeudaClienteItem item)
+    {
+        if (item.MesesAdeudados >= 3)
+            return "table-danger";
+
+        if (item.MesesAdeudados == 2)
+            return "table-warning";
+
+        return "";
+    }
+
+    private void IrACobranza()
+    {
+        Navigation.NavigateTo("/cobranza");
+    }
+
+    private class DeudaClienteItem
+    {
+        public int ClienteId { get; set; }
+        public int Codigo { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string? Telefono { get; set; }
+        public string? Documento { get; set; }
+        public int CantidadFacturas { get; set; }
+        public int MesesAdeudados { get; set; }
+        public decimal Deuda { get; set; }
+        public string PrimerPeriodo { get; set; } = string.Empty;
+        public string UltimoPeriodo { get; set; } = string.Empty;
+        public int PrimerAnio { get; set; }
+        public int PrimerMes { get; set; }
+    }
+}
+
+<style>
+    .dashboard-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.85rem;
+        padding: 1.25rem;
+        min-height: 120px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+
+    .dashboard-label {
+        color: #6b7280;
+        font-size: 0.8rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04rem;
+    }
+
+    .dashboard-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin-top: 0.35rem;
+    }
+
+    .dashboard-subtitle {
+        color: #6b7280;
+        font-size: 0.9rem;
+        margin-top: 0.25rem;
+    }
+
+    .grid-scroll {
+        max-height: 520px;
+        overflow-y: auto;
+    }
+
+        .grid-scroll thead th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f8f9fa;
+        }
+</style>
