@@ -1,0 +1,334 @@
+﻿@page "/configuracion"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+@using VideoCable.Web.Helpers
+
+@inject AppDbContext DbContext
+
+<PageTitle>Configuración</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Configuración</h1>
+        <p class="text-muted mb-0">Datos generales de la empresa.</p>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(mensaje))
+{
+    <div class="alert alert-success mt-3">
+        @mensaje
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger mt-3">
+        @error
+    </div>
+}
+
+@if (erroresValidacion.Any())
+{
+    <div class="alert alert-warning mt-3">
+        <ul class="mb-0">
+            @foreach (var err in erroresValidacion)
+            {
+                <li>@err</li>
+            }
+        </ul>
+    </div>
+}
+
+@if (cargando)
+{
+    <p class="mt-4">Cargando configuración...</p>
+}
+else if (empresaEditando is not null)
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            Datos de la empresa
+        </div>
+
+        <div class="card-body">
+            <div class="alert alert-info">
+                Estos datos se usan en estados de cuenta, presupuestos, facturas internas y encabezados del sistema.
+            </div>
+
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Nombre fantasía</label>
+                    <input class="form-control" @bind="empresaEditando.NombreFantasia" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Razón social</label>
+                    <input class="form-control" @bind="empresaEditando.RazonSocial" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">CUIT</label>
+                    <input class="form-control" @bind="empresaEditando.Cuit" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Condición IVA</label>
+                    <select class="form-select" @bind="empresaEditando.CondicionIva">
+                        @foreach (var condicion in Enum.GetValues<CondicionIvaEmpresa>())
+                        {
+                            <option value="@condicion">@condicion.GetDisplayName()</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Ingresos Brutos</label>
+                    <input class="form-control" @bind="empresaEditando.IngresosBrutos" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Teléfono</label>
+                    <input class="form-control" @bind="empresaEditando.Telefono" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Dirección</label>
+                    <input class="form-control" @bind="empresaEditando.Direccion" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Localidad</label>
+                    <input class="form-control" @bind="empresaEditando.Localidad" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Provincia</label>
+                    <input class="form-control" @bind="empresaEditando.Provincia" />
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">Email</label>
+                    <input class="form-control" @bind="empresaEditando.Email" />
+                </div>
+            </div>
+
+            <div class="mt-4 d-flex gap-2">
+                <button class="btn btn-success" @onclick="GuardarEmpresa">
+                    Guardar cambios
+                </button>
+
+                <button class="btn btn-outline-secondary" @onclick="CargarEmpresa">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header">
+            Vista previa de datos
+        </div>
+
+        <div class="card-body">
+            <div class="empresa-preview">
+                <div class="empresa-preview-logo">
+                    <img src="images/logo.jpg" alt="Logo empresa" />
+                </div>
+
+                <div>
+                    <h4 class="mb-1">
+                        @(!string.IsNullOrWhiteSpace(empresaEditando.NombreFantasia)
+                            ? empresaEditando.NombreFantasia
+                            : empresaEditando.RazonSocial)
+                    </h4>
+
+                    <div class="text-muted">Razón social: @empresaEditando.RazonSocial</div>
+                    <div class="text-muted">CUIT: @empresaEditando.Cuit</div>
+                    <div class="text-muted">Dirección: @empresaEditando.Direccion</div>
+                    <div class="text-muted">Localidad: @empresaEditando.Localidad - @empresaEditando.Provincia</div>
+                    <div class="text-muted">Teléfono: @empresaEditando.Telefono</div>
+                    <div class="text-muted">Email: @empresaEditando.Email</div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool cargando = true;
+    private string? mensaje;
+    private string? error;
+    private List<string> erroresValidacion = new();
+
+    private Empresa? empresaEditando;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarEmpresa();
+    }
+
+    private async Task CargarEmpresa()
+    {
+        cargando = true;
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+
+        try
+        {
+            var empresa = await DbContext.Empresas
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Activa);
+
+            if (empresa is null)
+            {
+                error = "No se encontró una empresa activa configurada.";
+                empresaEditando = null;
+                cargando = false;
+                return;
+            }
+
+            empresaEditando = new Empresa
+            {
+                Id = empresa.Id,
+                RazonSocial = empresa.RazonSocial,
+                NombreFantasia = empresa.NombreFantasia,
+                Cuit = empresa.Cuit,
+                CondicionIva = empresa.CondicionIva,
+                IngresosBrutos = empresa.IngresosBrutos,
+                Direccion = empresa.Direccion,
+                Localidad = empresa.Localidad,
+                Provincia = empresa.Provincia,
+                Telefono = empresa.Telefono,
+                Email = empresa.Email,
+
+                Activa = empresa.Activa,
+                CreatedAt = empresa.CreatedAt,
+                CreatedByUserId = empresa.CreatedByUserId,
+                IsDeleted = empresa.IsDeleted,
+                RowVersion = empresa.RowVersion
+            };
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al cargar la empresa: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+
+        cargando = false;
+    }
+
+    private async Task GuardarEmpresa()
+    {
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+
+        if (empresaEditando is null)
+            return;
+
+        if (string.IsNullOrWhiteSpace(empresaEditando.RazonSocial))
+            erroresValidacion.Add("La razón social es obligatoria.");
+
+        if (string.IsNullOrWhiteSpace(empresaEditando.NombreFantasia))
+            erroresValidacion.Add("El nombre fantasía es obligatorio.");
+
+        if (string.IsNullOrWhiteSpace(empresaEditando.Cuit))
+            erroresValidacion.Add("El CUIT es obligatorio.");
+
+        if (!string.IsNullOrWhiteSpace(empresaEditando.Cuit))
+        {
+            var cuitSoloNumeros = new string(empresaEditando.Cuit.Where(char.IsDigit).ToArray());
+
+            if (cuitSoloNumeros.Length != 11)
+                erroresValidacion.Add("El CUIT debe tener 11 números.");
+        }
+
+        if (string.IsNullOrWhiteSpace(empresaEditando.Direccion))
+            erroresValidacion.Add("La dirección es obligatoria.");
+
+        if (!string.IsNullOrWhiteSpace(empresaEditando.Email) &&
+            !empresaEditando.Email.Contains('@'))
+        {
+            erroresValidacion.Add("El email no tiene un formato válido.");
+        }
+
+        if (erroresValidacion.Any())
+            return;
+
+        try
+        {
+            var empresa = await DbContext.Empresas
+                .FirstAsync(x => x.Id == empresaEditando.Id);
+
+            empresa.RazonSocial = empresaEditando.RazonSocial.Trim();
+            empresa.NombreFantasia = empresaEditando.NombreFantasia?.Trim();
+            empresa.Cuit = new string(empresaEditando.Cuit.Where(char.IsDigit).ToArray());
+            empresa.CondicionIva = empresaEditando.CondicionIva;
+            empresa.IngresosBrutos = empresaEditando.IngresosBrutos?.Trim();
+            empresa.Direccion = empresaEditando.Direccion?.Trim();
+            empresa.Localidad = empresaEditando.Localidad?.Trim();
+            empresa.Provincia = empresaEditando.Provincia?.Trim();
+            empresa.Telefono = empresaEditando.Telefono?.Trim();
+            empresa.Email = empresaEditando.Email?.Trim();
+
+            empresa.UpdatedAt = DateTime.Now;
+
+            await DbContext.SaveChangesAsync();
+
+            mensaje = "Datos de empresa guardados correctamente.";
+
+            await CargarEmpresa();
+
+            mensaje = "Datos de empresa guardados correctamente.";
+        }
+        catch (DbUpdateException ex)
+        {
+            error = "No se pudieron guardar los datos de empresa.";
+            Console.WriteLine(ex.ToString());
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al guardar la empresa: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+    }
+}
+
+<style>
+    .empresa-preview {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+    }
+
+    .empresa-preview-logo {
+        width: 180px;
+        min-width: 180px;
+        height: 110px;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.85rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #ffffff;
+    }
+
+        .empresa-preview-logo img {
+            max-width: 160px;
+            max-height: 90px;
+            object-fit: contain;
+        }
+
+    @@media (max-width: 768px) {
+        .empresa-preview {
+            flex-direction: column;
+            align-items: flex-start;
+        }
+    }
+</style>

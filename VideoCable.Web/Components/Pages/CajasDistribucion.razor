@@ -31,6 +31,13 @@
     </div>
 }
 
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger mt-3">
+        @error
+    </div>
+}
+
 @if (editando)
 {
     <div class="card mt-4">
@@ -62,12 +69,16 @@
 
                 <div class="col-md-3">
                     <label class="form-label">Latitud</label>
-                    <InputNumber class="form-control" @bind-Value="cajaEditando.Latitud" />
+                    <input class="form-control"
+                           placeholder="-26.052679"
+                           @bind="latitudTexto" />
                 </div>
 
                 <div class="col-md-3">
                     <label class="form-label">Longitud</label>
-                    <InputNumber class="form-control" @bind-Value="cajaEditando.Longitud" />
+                    <input class="form-control"
+                           placeholder="-59.9443198"
+                           @bind="longitudTexto" />
                 </div>
 
                 <div class="col-md-3 d-flex align-items-end">
@@ -292,6 +303,9 @@ else
 @code {
     private List<CajaDistribucion>? cajas;
     private CajaDistribucion cajaEditando = new();
+    private string? latitudTexto;
+    private string? longitudTexto;
+    private string? error;
     private bool editando;
     private string? mensaje;
     private List<ResumenCajaItem> resumenCajas = new();
@@ -315,6 +329,9 @@ else
     private void NuevaCaja()
     {
         mensaje = null;
+        error = null;
+        latitudTexto = null;
+        longitudTexto = null;
 
         cajaEditando = new CajaDistribucion
         {
@@ -353,12 +370,31 @@ else
             RowVersion = caja.RowVersion
         };
 
+        latitudTexto = caja.Latitud?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        longitudTexto = caja.Longitud?.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
         editando = true;
     }
 
     private async Task GuardarCaja()
     {
         mensaje = null;
+        error = null;
+
+        if (string.IsNullOrWhiteSpace(cajaEditando.Codigo))
+        {
+            error = "Debe ingresar el código de la caja.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(cajaEditando.Descripcion))
+        {
+            error = "Debe ingresar la descripción de la caja.";
+            return;
+        }
+
+        if (!ValidarCoordenadas())
+            return;
 
         if (string.IsNullOrWhiteSpace(cajaEditando.Codigo))
             return;
@@ -394,6 +430,48 @@ else
         await CargarCajas();
         await CargarResumenCajas();
         await CargarMapa();
+    }
+
+    private bool ValidarCoordenadas()
+    {
+        cajaEditando.Latitud = null;
+        cajaEditando.Longitud = null;
+
+        if (!string.IsNullOrWhiteSpace(latitudTexto))
+        {
+            var textoLatitud = latitudTexto.Trim().Replace(",", ".");
+
+            if (!decimal.TryParse(
+                    textoLatitud,
+                    System.Globalization.NumberStyles.Number,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var latitud))
+            {
+                error = "La latitud no tiene un formato válido. Ejemplo: -26.052679";
+                return false;
+            }
+
+            cajaEditando.Latitud = latitud;
+        }
+
+        if (!string.IsNullOrWhiteSpace(longitudTexto))
+        {
+            var textoLongitud = longitudTexto.Trim().Replace(",", ".");
+
+            if (!decimal.TryParse(
+                    textoLongitud,
+                    System.Globalization.NumberStyles.Number,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var longitud))
+            {
+                error = "La longitud no tiene un formato válido. Ejemplo: -59.9443198";
+                return false;
+            }
+
+            cajaEditando.Longitud = longitud;
+        }
+
+        return true;
     }
 
     private void CancelarEdicion()

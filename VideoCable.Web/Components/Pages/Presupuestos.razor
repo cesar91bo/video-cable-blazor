@@ -1,0 +1,544 @@
+﻿@page "/presupuestos"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Infrastructure.Data
+
+@inject AppDbContext DbContext
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Presupuestos</PageTitle>
+
+<div class="page-header no-print">
+    <div>
+        <h1>Presupuestos</h1>
+        <p class="text-muted mb-0">
+            Presupuesto manual informativo. No genera deuda ni factura.
+        </p>
+    </div>
+
+    <button class="btn btn-outline-primary" @onclick="NuevoPresupuesto">
+        Nuevo
+    </button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger mt-3 no-print">@error</div>
+}
+
+<div class="card mt-4 no-print">
+    <div class="card-header">
+        Datos del presupuesto
+    </div>
+
+    <div class="card-body">
+        <div class="alert alert-info">
+            El presupuesto es informativo. No modifica deuda, facturación ni caja.
+        </div>
+
+        <div class="row g-3">
+            <div class="col-md-5">
+                <label class="form-label">Buscar cliente</label>
+                <input class="form-control"
+                       placeholder="Nombre, código, documento o CUIT..."
+                       value="@busquedaCliente"
+                       @oninput="BuscarClientes" />
+
+                <select class="form-select mt-2" value="@clienteSeleccionadoId" @onchange="OnClienteChanged">
+                    <option value="0">Sin cliente seleccionado...</option>
+                    @foreach (var cliente in clientes)
+                    {
+                        <option value="@cliente.Id">@cliente.Codigo - @cliente.Nombre</option>
+                    }
+                </select>
+
+                <div class="text-muted small mt-1">
+                    También podés completar el nombre manualmente abajo.
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Cliente / Destinatario</label>
+                <input class="form-control" @bind="clienteNombreManual" />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Fecha</label>
+                <InputDate class="form-control" @bind-Value="fechaPresupuesto" />
+            </div>
+
+            <div class="col-md-4">
+                <label class="form-label">Dirección</label>
+                <input class="form-control" @bind="clienteDireccionManual" />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Teléfono</label>
+                <input class="form-control" @bind="clienteTelefonoManual" />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Validez</label>
+                <input class="form-control" @bind="validez" />
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label">Nro.</label>
+                <input class="form-control" @bind="numeroPresupuesto" />
+            </div>
+
+            <div class="col-md-12">
+                <label class="form-label">Observaciones</label>
+                <input class="form-control"
+                       placeholder="Ej: presupuesto sujeto a revisión técnica"
+                       @bind="observaciones" />
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4 no-print">
+    <div class="card-header">
+        Agregar ítem
+    </div>
+
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Descripción</label>
+                <input class="form-control"
+                       placeholder="Ej: Derecho de conexión Internet"
+                       @bind="itemDescripcion" />
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label">Cantidad</label>
+                <InputNumber class="form-control" @bind-Value="itemCantidad" />
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label">Precio unitario</label>
+                <InputNumber class="form-control" @bind-Value="itemPrecioUnitario" />
+            </div>
+
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-success w-100" @onclick="AgregarItem">
+                    Agregar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (erroresValidacion.Any())
+{
+    <div class="alert alert-warning mt-3 no-print">
+        <ul class="mb-0">
+            @foreach (var err in erroresValidacion)
+            {
+                <li>@err</li>
+            }
+        </ul>
+    </div>
+}
+
+<div class="card mt-4 comprobante-print">
+    <div class="card-body">
+        <div class="comprobante-header border-bottom pb-3 mb-3">
+            <div class="empresa-logo">
+                <img src="images/logo.jpg" alt="Logo empresa" />
+            </div>
+
+            <div class="empresa-datos">
+                <div class="empresa-nombre">@empresaNombre</div>
+
+                @if (!string.IsNullOrWhiteSpace(empresaCuit))
+                {
+                    <div>CUIT: @empresaCuit</div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(empresaDireccion))
+                {
+                    <div>Dirección: @empresaDireccion</div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(empresaTelefono))
+                {
+                    <div>Teléfono: @empresaTelefono</div>
+                }
+            </div>
+
+            <div class="comprobante-titulo">
+                <h3 class="mb-1">Presupuesto</h3>
+                <div class="text-muted">Documento informativo</div>
+                <div class="text-muted small mt-2">Fecha: @fechaPresupuesto.ToString("dd/MM/yyyy")</div>
+
+                @if (!string.IsNullOrWhiteSpace(numeroPresupuesto))
+                {
+                    <div class="text-muted small">Nro: @numeroPresupuesto</div>
+                }
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-7">
+                <div class="fw-bold">Cliente / Destinatario</div>
+                <div>@(!string.IsNullOrWhiteSpace(clienteNombreManual) ? clienteNombreManual : "Consumidor final")</div>
+
+                @if (!string.IsNullOrWhiteSpace(clienteDireccionManual))
+                {
+                    <div class="text-muted small">Dirección: @clienteDireccionManual</div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(clienteTelefonoManual))
+                {
+                    <div class="text-muted small">Teléfono: @clienteTelefonoManual</div>
+                }
+            </div>
+
+            <div class="col-md-5 text-md-end">
+                <div class="fw-bold">Validez del presupuesto</div>
+                <div>@validez</div>
+            </div>
+        </div>
+
+        <div class="alert alert-secondary no-print">
+            Este presupuesto no genera deuda. Para cobrar, se debe cargar una factura o registrar el concepto correspondiente.
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Descripción</th>
+                        <th class="text-end">Cantidad</th>
+                        <th class="text-end">Precio unitario</th>
+                        <th class="text-end">Total</th>
+                        <th class="text-end no-print">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in items)
+                    {
+                        <tr>
+                            <td>@item.Descripcion</td>
+                            <td class="text-end">@item.Cantidad.ToString("N2")</td>
+                            <td class="text-end">@item.PrecioUnitario.ToString("C0")</td>
+                            <td class="text-end fw-bold">@item.Total.ToString("C0")</td>
+                            <td class="text-end no-print">
+                                <button class="btn btn-sm btn-outline-danger" @onclick="() => QuitarItem(item.Id)">
+                                    Quitar
+                                </button>
+                            </td>
+                        </tr>
+                    }
+
+                    @if (!items.Any())
+                    {
+                        <tr>
+                            <td colspan="5" class="text-muted">
+                                No hay ítems cargados.
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <th colspan="3" class="text-end">Total presupuesto</th>
+                        <th class="text-end">@totalPresupuesto.ToString("C0")</th>
+                        <th class="no-print"></th>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(observaciones))
+        {
+            <div class="mt-4">
+                <div class="fw-bold">Observaciones</div>
+                <div>@observaciones</div>
+            </div>
+        }
+
+        <div class="mt-4 text-muted small">
+            Presupuesto sujeto a disponibilidad técnica y/o modificación de precios. Este documento no reemplaza factura ni comprobante fiscal.
+        </div>
+
+        <div class="mt-4 d-flex gap-2 no-print">
+            <button class="btn btn-primary" @onclick="Imprimir" disabled="@(!items.Any())">
+                Imprimir presupuesto
+            </button>
+
+            <button class="btn btn-outline-secondary" @onclick="NuevoPresupuesto">
+                Limpiar
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string? error;
+    private List<string> erroresValidacion = new();
+
+    private string empresaNombre = "Video Cable";
+    private string? empresaCuit;
+    private string? empresaDireccion;
+    private string? empresaTelefono;
+
+    private string? busquedaCliente;
+    private int clienteSeleccionadoId;
+    private List<ClienteComboItem> clientes = new();
+
+    private string? clienteNombreManual;
+    private string? clienteDireccionManual;
+    private string? clienteTelefonoManual;
+
+    private DateTime fechaPresupuesto = DateTime.Today;
+    private string validez = "7 días";
+    private string? numeroPresupuesto;
+    private string? observaciones;
+
+    private string? itemDescripcion;
+    private decimal itemCantidad = 1;
+    private decimal itemPrecioUnitario;
+
+    private List<PresupuestoItem> items = new();
+
+    private decimal totalPresupuesto => items.Sum(x => x.Total);
+
+    protected override async Task OnInitializedAsync()
+    {
+        var empresa = await DbContext.Empresas
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Activa);
+
+        if (empresa is not null)
+        {
+            empresaNombre = !string.IsNullOrWhiteSpace(empresa.NombreFantasia)
+                ? empresa.NombreFantasia
+                : empresa.RazonSocial;
+
+            empresaCuit = empresa.Cuit;
+            empresaDireccion = empresa.Direccion;
+            empresaTelefono = empresa.Telefono;
+        }
+
+        numeroPresupuesto = DateTime.Now.ToString("yyyyMMdd-HHmm");
+    }
+
+    private async Task BuscarClientes(ChangeEventArgs e)
+    {
+        busquedaCliente = e.Value?.ToString();
+
+        clientes = new();
+        clienteSeleccionadoId = 0;
+
+        if (string.IsNullOrWhiteSpace(busquedaCliente))
+            return;
+
+        var texto = busquedaCliente.Trim();
+
+        if (texto.Length < 3)
+            return;
+
+        clientes = await DbContext.Clientes
+            .AsNoTracking()
+            .Where(x =>
+                x.Activo &&
+                (
+                    x.Nombre.Contains(texto) ||
+                    x.Codigo.ToString().Contains(texto) ||
+                    (x.NumeroDocumento != null && x.NumeroDocumento.Contains(texto)) ||
+                    (x.Cuit != null && x.Cuit.Contains(texto))
+                ))
+            .OrderBy(x => x.Nombre)
+            .Take(50)
+            .Select(x => new ClienteComboItem
+            {
+                Id = x.Id,
+                Codigo = x.Codigo,
+                Nombre = x.Nombre,
+                Direccion = x.Direccion,
+                Telefono = x.Telefono
+            })
+            .ToListAsync();
+    }
+
+    private async Task OnClienteChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out clienteSeleccionadoId))
+            clienteSeleccionadoId = 0;
+
+        if (clienteSeleccionadoId <= 0)
+            return;
+
+        var cliente = await DbContext.Clientes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == clienteSeleccionadoId);
+
+        if (cliente is null)
+            return;
+
+        clienteNombreManual = cliente.Nombre;
+        clienteDireccionManual = cliente.Direccion;
+        clienteTelefonoManual = cliente.Telefono;
+    }
+
+    private void AgregarItem()
+    {
+        erroresValidacion.Clear();
+
+        if (string.IsNullOrWhiteSpace(itemDescripcion))
+            erroresValidacion.Add("Debe ingresar una descripción.");
+
+        if (itemCantidad <= 0)
+            erroresValidacion.Add("La cantidad debe ser mayor a cero.");
+
+        if (itemPrecioUnitario <= 0)
+            erroresValidacion.Add("El precio unitario debe ser mayor a cero.");
+
+        if (erroresValidacion.Any())
+            return;
+
+        var item = new PresupuestoItem
+        {
+            Id = items.Any() ? items.Max(x => x.Id) + 1 : 1,
+            Descripcion = itemDescripcion.Trim(),
+            Cantidad = itemCantidad,
+            PrecioUnitario = itemPrecioUnitario
+        };
+
+        items.Add(item);
+
+        itemDescripcion = null;
+        itemCantidad = 1;
+        itemPrecioUnitario = 0;
+    }
+
+    private void QuitarItem(int id)
+    {
+        var item = items.FirstOrDefault(x => x.Id == id);
+
+        if (item is not null)
+            items.Remove(item);
+    }
+
+    private async Task Imprimir()
+    {
+        erroresValidacion.Clear();
+
+        if (!items.Any())
+        {
+            erroresValidacion.Add("Debe cargar al menos un ítem para imprimir.");
+            return;
+        }
+
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private void NuevoPresupuesto()
+    {
+        error = null;
+        erroresValidacion.Clear();
+
+        busquedaCliente = null;
+        clienteSeleccionadoId = 0;
+        clientes = new();
+
+        clienteNombreManual = null;
+        clienteDireccionManual = null;
+        clienteTelefonoManual = null;
+
+        fechaPresupuesto = DateTime.Today;
+        validez = "7 días";
+        numeroPresupuesto = DateTime.Now.ToString("yyyyMMdd-HHmm");
+        observaciones = null;
+
+        itemDescripcion = null;
+        itemCantidad = 1;
+        itemPrecioUnitario = 0;
+
+        items = new();
+    }
+
+    private class ClienteComboItem
+    {
+        public int Id { get; set; }
+        public int Codigo { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string? Direccion { get; set; }
+        public string? Telefono { get; set; }
+    }
+
+    private class PresupuestoItem
+    {
+        public int Id { get; set; }
+        public string Descripcion { get; set; } = string.Empty;
+        public decimal Cantidad { get; set; }
+        public decimal PrecioUnitario { get; set; }
+        public decimal Total => Cantidad * PrecioUnitario;
+    }
+}
+
+<style>
+    .comprobante-header {
+        display: grid;
+        grid-template-columns: 180px 1fr 260px;
+        gap: 1.25rem;
+        align-items: center;
+    }
+
+    .empresa-logo img {
+        max-width: 170px;
+        max-height: 100px;
+        object-fit: contain;
+    }
+
+    .empresa-datos {
+        font-size: 0.95rem;
+        color: #374151;
+    }
+
+    .empresa-nombre {
+        font-weight: 800;
+        font-size: 1.1rem;
+        color: #111827;
+        margin-bottom: 0.25rem;
+    }
+
+    .comprobante-titulo {
+        text-align: right;
+    }
+
+    @@media print {
+        body {
+            background: #ffffff !important;
+        }
+
+        .no-print,
+        .sidebar,
+        .top-row,
+        .page-header {
+            display: none !important;
+        }
+
+        .content {
+            padding: 0 !important;
+        }
+
+        .comprobante-print {
+            border: none !important;
+            box-shadow: none !important;
+            margin-top: 0 !important;
+        }
+
+        .comprobante-header {
+            grid-template-columns: 160px 1fr 220px;
+        }
+
+        .empresa-logo img {
+            max-width: 150px;
+        }
+    }
+</style>

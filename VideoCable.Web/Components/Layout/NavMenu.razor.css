@@ -1,3 +1,63 @@
+.sidebar-header {
+    height: 5.25rem;
+    padding: 0.85rem 1rem;
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    transition: all 0.2s ease-in-out;
+    cursor: pointer;
+}
+
+    .sidebar-header:hover {
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+.sidebar-toggle-button {
+    display: none;
+    width: 2.3rem;
+    height: 2.3rem;
+    min-width: 2.3rem;
+    border: 0;
+    border-radius: 0.65rem;
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    font-size: 1.25rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+    .sidebar-toggle-button:hover {
+        background: rgba(255, 255, 255, 0.22);
+    }
+
+.brand-icon {
+    width: 2.3rem;
+    height: 2.3rem;
+    min-width: 2.3rem;
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.12);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+}
+
+.brand-title {
+    font-size: 1.05rem;
+    font-weight: 800;
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+.brand-subtitle {
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.65);
+    margin-top: 0.2rem;
+    white-space: nowrap;
+}
+
 .navbar-toggler {
     appearance: none;
     cursor: pointer;
@@ -5,38 +65,19 @@
     height: 2.5rem;
     color: white;
     position: absolute;
-    top: 0.7rem;
+    top: 0.5rem;
     right: 1rem;
     border: 1px solid rgba(255, 255, 255, 0.15);
     background: rgba(255, 255, 255, 0.08);
     border-radius: 0.5rem;
 }
 
-.navbar-toggler:checked {
-    background-color: rgba(255, 255, 255, 0.18);
-}
-
-.sidebar-header {
-    padding: 1.5rem 1.25rem 1.25rem 1.25rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.brand-title {
-    color: #ffffff;
-    font-size: 1.25rem;
-    font-weight: 700;
-    letter-spacing: 0.2px;
-}
-
-.brand-subtitle {
-    color: rgba(255, 255, 255, 0.65);
-    font-size: 0.82rem;
-    margin-top: 0.2rem;
-}
+    .navbar-toggler:checked {
+        background-color: rgba(255, 255, 255, 0.18);
+    }
 
 .nav-scrollable {
     display: none;
-    padding-top: 1rem;
 }
 
 .navbar-toggler:checked ~ .nav-scrollable {
@@ -44,53 +85,108 @@
 }
 
 .nav-section-title {
-    color: rgba(255, 255, 255, 0.45);
-    font-size: 0.72rem;
-    font-weight: 700;
+    color: rgba(255, 255, 255, 0.38);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.12rem;
     text-transform: uppercase;
-    letter-spacing: 0.08rem;
-    padding: 1rem 1.25rem 0.4rem 1.25rem;
+    padding: 1rem 1rem 0.35rem 1rem;
+    white-space: nowrap;
 }
 
 .nav-item {
-    font-size: 0.95rem;
-    padding-bottom: 0.25rem;
+    font-size: 0.94rem;
+    padding-bottom: 0.2rem;
 }
 
-.nav-item ::deep .nav-link,
-.nav-item .nav-link {
-    color: rgba(255, 255, 255, 0.78);
-    border-radius: 0.65rem;
-    height: 2.75rem;
+    .nav-item ::deep .nav-link {
+        color: rgba(255, 255, 255, 0.78);
+        background: none;
+        border: none;
+        border-radius: 0.75rem;
+        height: 2.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.8rem;
+        line-height: 2.75rem;
+        padding: 0 0.9rem;
+        transition: all 0.15s ease-in-out;
+    }
+
+        .nav-item ::deep .nav-link:hover {
+            color: #ffffff;
+            background-color: rgba(255, 255, 255, 0.08);
+        }
+
+    .nav-item ::deep a.active {
+        color: #ffffff;
+        background: rgba(99, 102, 241, 0.35);
+        box-shadow: inset 3px 0 0 #818cf8;
+    }
+
+.menu-icon {
+    width: 1.5rem;
+    min-width: 1.5rem;
+    text-align: center;
+    font-size: 1.1rem;
+    line-height: 1;
+}
+
+.menu-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Modo comprimido */
+.nav-menu-collapsed .sidebar-header {
+    justify-content: center;
+    flex-direction: column;
+    height: 6rem;
+    padding: 0.75rem 0;
+    gap: 0.5rem;
+    cursor: default;
+}
+
+    .nav-menu-collapsed .sidebar-header:hover {
+        background: transparent;
+    }
+
+.nav-menu-collapsed .sidebar-toggle-button {
     display: flex;
     align-items: center;
-    line-height: 2.75rem;
-    transition: background-color 0.15s ease, color 0.15s ease;
+    justify-content: center;
 }
 
-.nav-item ::deep a.active {
-    background: rgba(255, 255, 255, 0.16);
-    color: white;
-    font-weight: 600;
+.nav-menu-collapsed .brand-text,
+.nav-menu-collapsed .menu-text,
+.nav-menu-collapsed .nav-section-title {
+    display: none;
 }
 
-.nav-item ::deep .nav-link:hover {
-    background: rgba(255, 255, 255, 0.10);
-    color: white;
+.nav-menu-collapsed .brand-icon {
+    width: 2.2rem;
+    height: 2.2rem;
+    min-width: 2.2rem;
+    margin: 0;
 }
 
-.disabled-link {
-    opacity: 0.45;
-    cursor: not-allowed;
+.nav-menu-collapsed .nav-item {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
 }
 
-.bi {
-    display: inline-block;
-    width: 1.35rem;
-    margin-right: 0.75rem;
-    background-size: cover;
+    .nav-menu-collapsed .nav-item ::deep .nav-link {
+        justify-content: center;
+        padding: 0;
+        gap: 0;
+    }
+
+.nav-menu-collapsed .menu-icon {
+    font-size: 1.25rem;
 }
 
+/* Desktop */
 @media (min-width: 641px) {
     .navbar-toggler {
         display: none;
@@ -98,7 +194,35 @@
 
     .nav-scrollable {
         display: block;
-        height: calc(100vh - 5rem);
+        height: calc(100vh - 5.25rem);
         overflow-y: auto;
+    }
+
+    .nav-menu-collapsed .nav-scrollable {
+        height: calc(100vh - 6rem);
+    }
+
+    .nav-scrollable::-webkit-scrollbar {
+        width: 0.45rem;
+    }
+
+    .nav-scrollable::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.18);
+        border-radius: 999px;
+    }
+}
+
+/* Mobile */
+@media (max-width: 640.98px) {
+    .sidebar-header {
+        height: 4.25rem;
+    }
+
+    .brand-subtitle {
+        display: none;
+    }
+
+    .nav-menu-collapsed .brand-text {
+        display: block;
     }
 }

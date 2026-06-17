@@ -1,0 +1,533 @@
+﻿@page "/estado-cuenta"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Estado de cuenta</PageTitle>
+
+<div class="comprobante-header border-bottom pb-3 mb-3">
+    <div class="empresa-logo">
+        <img src="images/logo.jpg" alt="Logo empresa" />
+    </div>
+
+    <div class="empresa-datos">
+        <div class="empresa-nombre">@empresaNombre</div>
+
+        @if (!string.IsNullOrWhiteSpace(empresaCuit))
+        {
+            <div>CUIT: @empresaCuit</div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(empresaDireccion))
+        {
+            <div>Dirección: @empresaDireccion</div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(empresaTelefono))
+        {
+            <div>Teléfono: @empresaTelefono</div>
+        }
+    </div>
+
+    <div class="comprobante-titulo">
+        <h3 class="mb-1">Estado de cuenta</h3>
+        <div class="text-muted">Detalle de deuda pendiente</div>
+        <div class="text-muted small mt-2">Fecha: @DateTime.Today.ToString("dd/MM/yyyy")</div>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger mt-3">@error</div>
+}
+
+<div class="card mt-4 no-print">
+    <div class="card-header">
+        Buscar cliente
+    </div>
+
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label">Cliente</label>
+                <input class="form-control"
+                       placeholder="Buscar por nombre, código, documento o CUIT..."
+                       value="@busquedaCliente"
+                       @oninput="BuscarClientes" />
+
+                <select class="form-select mt-2" value="@clienteSeleccionadoId" @onchange="OnClienteChanged">
+                    <option value="0">Seleccionar cliente...</option>
+                    @foreach (var cliente in clientes)
+                    {
+                        <option value="@cliente.Id">@cliente.Codigo - @cliente.Nombre</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-primary w-100" @onclick="CargarEstadoCuenta">
+                    Ver estado de cuenta
+                </button>
+            </div>
+
+            <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-outline-secondary w-100" @onclick="Imprimir" disabled="@(clienteSeleccionado is null)">
+                    Imprimir
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (cargando)
+{
+    <p class="mt-4">Cargando estado de cuenta...</p>
+}
+else if (clienteSeleccionado is not null)
+{
+    <div class="card mt-4 estado-cuenta-print">
+        <div class="card-body">
+
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="fw-bold">Cliente</div>
+                    <div>@clienteSeleccionado.Nombre</div>
+                    <div class="text-muted small">Código @clienteSeleccionado.Codigo</div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="fw-bold">Dirección</div>
+                    <div>@clienteSeleccionado.Direccion</div>
+                    <div class="text-muted small">Teléfono: @clienteSeleccionado.Telefono</div>
+                </div>
+            </div>
+
+            <div class="alert alert-warning no-print">
+                Este documento informa deuda real existente en el sistema. No es presupuesto.
+            </div>
+
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <div class="dashboard-card">
+                        <div class="dashboard-label">Facturas pendientes</div>
+                        <div class="dashboard-value">@items.Count</div>
+                        <div class="dashboard-subtitle">Pendientes o parciales</div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="dashboard-card">
+                        <div class="dashboard-label">Meses adeudados</div>
+                        <div class="dashboard-value">@mesesAdeudados</div>
+                        <div class="dashboard-subtitle">Períodos distintos</div>
+                    </div>
+                </div>
+
+                <div class="col-md-4">
+                    <div class="dashboard-card deuda-card">
+                        <div class="dashboard-label">Total adeudado</div>
+                        <div class="dashboard-value">@totalDeuda.ToString("C0")</div>
+                        <div class="dashboard-subtitle">Saldo pendiente</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-striped table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Período</th>
+                            <th>Servicio</th>
+                            <th>Vencimiento</th>
+                            <th class="text-end">Importe</th>
+                            <th class="text-end">Pagado</th>
+                            <th class="text-end">Saldo</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in items)
+                        {
+                            <tr>
+                                <td>@item.Periodo</td>
+                                <td>@item.Servicio</td>
+                                <td>@item.FechaVencimiento.ToString("dd/MM/yyyy")</td>
+                                <td class="text-end">@item.Importe.ToString("C0")</td>
+                                <td class="text-end">@item.Pagado.ToString("C0")</td>
+                                <td class="text-end fw-bold">@item.Saldo.ToString("C0")</td>
+                            </tr>
+                        }
+
+                        @if (!items.Any())
+                        {
+                            <tr>
+                                <td colspan="6" class="text-muted">
+                                    El cliente no registra deuda pendiente.
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <th colspan="5" class="text-end">Total adeudado</th>
+                            <th class="text-end">@totalDeuda.ToString("C0")</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            <div class="mt-4 text-muted small">
+                Documento generado desde el sistema de gestión. Los importes pueden variar si se registran pagos posteriores.
+            </div>
+
+            <div class="mt-4 d-flex gap-2 no-print">
+                <button class="btn btn-success" @onclick="IrACobranza" disabled="@(totalDeuda <= 0)">
+                    Ir a cobranza
+                </button>
+
+                <button class="btn btn-outline-secondary" @onclick="Imprimir">
+                    Imprimir copia
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool cargando;
+    private string? error;
+
+    private string empresaNombre = "Video Cable";
+    private string? empresaCuit;
+    private string? empresaDireccion;
+    private string? empresaTelefono;
+
+    private string? busquedaCliente;
+    private int clienteSeleccionadoId;
+
+    private List<ClienteComboItem> clientes = new();
+    private ClienteEstadoCuentaItem? clienteSeleccionado;
+
+    private List<EstadoCuentaItem> items = new();
+
+    private decimal totalDeuda;
+    private int mesesAdeudados;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var empresa = await DbContext.Empresas
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Activa);
+
+        if (empresa is not null)
+        {
+            empresaNombre = !string.IsNullOrWhiteSpace(empresa.NombreFantasia)
+                ? empresa.NombreFantasia
+                : empresa.RazonSocial;
+
+            empresaCuit = empresa.Cuit;
+            empresaDireccion = empresa.Direccion;
+            empresaTelefono = empresa.Telefono;
+        }
+    }
+
+    private async Task BuscarClientes(ChangeEventArgs e)
+    {
+        busquedaCliente = e.Value?.ToString();
+
+        clientes = new();
+        clienteSeleccionadoId = 0;
+        clienteSeleccionado = null;
+        items = new();
+        totalDeuda = 0;
+        mesesAdeudados = 0;
+
+        if (string.IsNullOrWhiteSpace(busquedaCliente))
+            return;
+
+        var texto = busquedaCliente.Trim();
+
+        if (texto.Length < 3)
+            return;
+
+        clientes = await DbContext.Clientes
+            .AsNoTracking()
+            .Where(x =>
+                x.Activo &&
+                (
+                    x.Nombre.Contains(texto) ||
+                    x.Codigo.ToString().Contains(texto) ||
+                    (x.NumeroDocumento != null && x.NumeroDocumento.Contains(texto)) ||
+                    (x.Cuit != null && x.Cuit.Contains(texto))
+                ))
+            .OrderBy(x => x.Nombre)
+            .Take(50)
+            .Select(x => new ClienteComboItem
+            {
+                Id = x.Id,
+                Codigo = x.Codigo,
+                Nombre = x.Nombre
+            })
+            .ToListAsync();
+    }
+
+    private async Task OnClienteChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out clienteSeleccionadoId))
+            clienteSeleccionadoId = 0;
+
+        clienteSeleccionado = null;
+        items = new();
+        totalDeuda = 0;
+        mesesAdeudados = 0;
+
+        if (clienteSeleccionadoId > 0)
+        {
+            await CargarEstadoCuenta();
+        }
+    }
+
+    private async Task CargarEstadoCuenta()
+    {
+        error = null;
+        cargando = true;
+
+        try
+        {
+            items = new();
+            totalDeuda = 0;
+            mesesAdeudados = 0;
+
+            if (clienteSeleccionadoId <= 0)
+            {
+                error = "Debe seleccionar un cliente.";
+                cargando = false;
+                return;
+            }
+
+            var cliente = await DbContext.Clientes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == clienteSeleccionadoId);
+
+            if (cliente is null)
+            {
+                error = "No se encontró el cliente seleccionado.";
+                cargando = false;
+                return;
+            }
+
+            clienteSeleccionado = new ClienteEstadoCuentaItem
+            {
+                Id = cliente.Id,
+                Codigo = cliente.Codigo,
+                Nombre = cliente.Nombre,
+                Direccion = cliente.Direccion,
+                Telefono = cliente.Telefono
+            };
+
+            var facturas = await DbContext.Facturas
+                .AsNoTracking()
+                .Include(x => x.PagoAplicaciones)
+                .Where(x =>
+                    x.ClienteId == clienteSeleccionadoId &&
+                    (
+                        x.EstadoCobranza == EstadoCobranzaFactura.Pendiente ||
+                        x.EstadoCobranza == EstadoCobranzaFactura.Parcial
+                    ))
+                .OrderBy(x => x.PeriodoAnio)
+                .ThenBy(x => x.PeriodoMes)
+                .ToListAsync();
+
+            items = facturas
+                .Select(x =>
+                {
+                    var pagado = x.PagoAplicaciones.Sum(p => p.MontoAplicado);
+                    var saldo = x.Total - pagado;
+
+                    return new EstadoCuentaItem
+                    {
+                        FacturaId = x.Id,
+                        PeriodoAnio = x.PeriodoAnio,
+                        PeriodoMes = x.PeriodoMes,
+                        Periodo = $"{x.PeriodoMes:00}/{x.PeriodoAnio}",
+                        Servicio = x.ServicioDescripcionSnapshot,
+                        FechaVencimiento = x.FechaVencimiento,
+                        Importe = x.Total,
+                        Pagado = pagado,
+                        Saldo = saldo
+                    };
+                })
+                .Where(x => x.Saldo > 0)
+                .ToList();
+
+            totalDeuda = items.Sum(x => x.Saldo);
+
+            mesesAdeudados = items
+                .Select(x => new { x.PeriodoAnio, x.PeriodoMes })
+                .Distinct()
+                .Count();
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al cargar el estado de cuenta: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+
+        cargando = false;
+    }
+
+    private async Task Imprimir()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private void IrACobranza()
+    {
+        Navigation.NavigateTo($"/cobranza?clienteId={clienteSeleccionadoId}");
+    }
+
+    private void Limpiar()
+    {
+        error = null;
+        busquedaCliente = null;
+        clienteSeleccionadoId = 0;
+        clientes = new();
+        clienteSeleccionado = null;
+        items = new();
+        totalDeuda = 0;
+        mesesAdeudados = 0;
+    }
+
+    private class ClienteComboItem
+    {
+        public int Id { get; set; }
+        public int Codigo { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+    }
+
+    private class ClienteEstadoCuentaItem
+    {
+        public int Id { get; set; }
+        public int Codigo { get; set; }
+        public string Nombre { get; set; } = string.Empty;
+        public string? Direccion { get; set; }
+        public string? Telefono { get; set; }
+    }
+
+    private class EstadoCuentaItem
+    {
+        public int FacturaId { get; set; }
+        public int PeriodoAnio { get; set; }
+        public int PeriodoMes { get; set; }
+        public string Periodo { get; set; } = string.Empty;
+        public string Servicio { get; set; } = string.Empty;
+        public DateTime FechaVencimiento { get; set; }
+        public decimal Importe { get; set; }
+        public decimal Pagado { get; set; }
+        public decimal Saldo { get; set; }
+    }
+}
+
+<style>
+    .dashboard-card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.85rem;
+        padding: 1.25rem;
+        min-height: 120px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+    }
+
+    .dashboard-label {
+        color: #6b7280;
+        font-size: 0.8rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04rem;
+    }
+
+    .dashboard-value {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin-top: 0.35rem;
+    }
+
+    .dashboard-subtitle {
+        color: #6b7280;
+        font-size: 0.9rem;
+        margin-top: 0.25rem;
+    }
+
+    .deuda-card {
+        border-color: #f59e0b;
+    }
+
+    @@media print {
+        body {
+            background: #ffffff !important;
+        }
+
+        .no-print,
+        .sidebar,
+        .top-row,
+        .page-header button {
+            display: none !important;
+        }
+
+        .content {
+            padding: 0 !important;
+        }
+
+        .estado-cuenta-print {
+            border: none !important;
+            box-shadow: none !important;
+            margin-top: 0 !important;
+        }
+
+        .dashboard-card {
+            box-shadow: none !important;
+        }
+
+        .comprobante-header {
+            grid-template-columns: 160px 1fr 220px;
+        }
+
+        .empresa-logo img {
+            max-width: 150px;
+        }
+    }
+
+    .comprobante-header {
+        display: grid;
+        grid-template-columns: 180px 1fr 260px;
+        gap: 1.25rem;
+        align-items: center;
+    }
+
+    .empresa-logo img {
+        max-width: 170px;
+        max-height: 100px;
+        object-fit: contain;
+    }
+
+    .empresa-datos {
+        font-size: 0.95rem;
+        color: #374151;
+    }
+
+    .empresa-nombre {
+        font-weight: 800;
+        font-size: 1.1rem;
+        color: #111827;
+        margin-bottom: 0.25rem;
+    }
+
+    .comprobante-titulo {
+        text-align: right;
+    }
+</style>

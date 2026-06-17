@@ -1,84 +1,148 @@
 ﻿@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.JSInterop
 
-<div class="sidebar-header">
-    <div class="brand-title">Video Cable</div>
-    <div class="brand-subtitle">Gestión administrativa</div>
+@inject IJSRuntime JSRuntime
+
+@rendermode InteractiveServer
+
+<div class="nav-menu-root @(menuComprimido ? "nav-menu-collapsed" : "")">
+    <div class="sidebar-header" @onclick="ComprimirMenu" title="Contraer menú">
+        <button class="sidebar-toggle-button"
+                @onclick="ExpandirMenu"
+                @onclick:stopPropagation="true"
+                title="Expandir menú">
+            ☰
+        </button>
+
+        <div class="brand-icon">📡</div>
+
+        <div class="brand-text">
+            <div class="brand-title">Video Cable</div>
+            <div class="brand-subtitle">Gestión administrativa</div>
+        </div>
+    </div>
+
+    <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+    <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler')?.click()">
+        <nav class="nav flex-column">
+
+            <div class="nav-section-title">Principal</div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All" title="Inicio">
+                    <span class="menu-icon">🏠</span>
+                    <span class="menu-text">Inicio</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-section-title">Administración</div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="servicios" title="Servicios / Planes">
+                    <span class="menu-icon">📦</span>
+                    <span class="menu-text">Servicios / Planes</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="cajas-distribucion" title="Cajas de distribución">
+                    <span class="menu-icon">🗺️</span>
+                    <span class="menu-text">Cajas de distribución</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="configuracion" title="Configuración">
+                    <span class="menu-icon">⚙️</span>
+                    <span class="menu-text">Configuración</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-section-title">Operación</div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="clientes" title="Clientes">
+                    <span class="menu-icon">👥</span>
+                    <span class="menu-text">Clientes</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="suscripciones" title="Suscripciones">
+                    <span class="menu-icon">🧾</span>
+                    <span class="menu-text">Suscripciones</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="facturacion-mensual" title="Facturación mensual">
+                    <span class="menu-icon">📄</span>
+                    <span class="menu-text">Facturación mensual</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="estado-cuenta" title="Estado de cuenta">
+                    <span class="menu-icon">📋</span>
+                    <span class="menu-text">Estado de cuenta</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="presupuestos" title="Presupuestos">
+                    <span class="menu-icon">📝</span>
+                    <span class="menu-text">Presupuestos</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-section-title">Caja y cobranza</div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="caja-diaria" title="Caja diaria">
+                    <span class="menu-icon">💵</span>
+                    <span class="menu-text">Caja diaria</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="cobranza" title="Cobranza">
+                    <span class="menu-icon">💰</span>
+                    <span class="menu-text">Cobranza</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="reporte-deudas" title="Reporte de deudas">
+                    <span class="menu-icon">⚠️</span>
+                    <span class="menu-text">Reporte de deudas</span>
+                </NavLink>
+            </div>
+        </nav>
+    </div>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+@code {
+    private bool menuComprimido;
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
+    private async Task ComprimirMenu()
+    {
+        if (menuComprimido)
+            return;
 
-        <div class="nav-section-title">Principal</div>
+        menuComprimido = true;
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span>
-                Inicio
-            </NavLink>
-        </div>
+        await JSRuntime.InvokeVoidAsync("eval", @"
+            document.querySelector('.sidebar')?.classList.add('sidebar-collapsed');
+        ");
+    }
 
-        <div class="nav-section-title">Administración</div>
+    private async Task ExpandirMenu()
+    {
+        menuComprimido = false;
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="servicios">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span>
-                Servicios / Planes
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="cajas-distribucion">
-                <span class="bi bi-diagram-3-fill-nav-menu" aria-hidden="true"></span>
-                Cajas de distribución
-            </NavLink>
-        </div>
-
-        <div class="nav-section-title">Operación</div>
-
-        
-        <div class="nav-item px-3 nav-disabled">
-            <NavLink class="nav-link" href="clientes">
-                <span class="bi bi-people-fill-nav-menu" aria-hidden="true"></span>
-                Clientes
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="suscripciones">
-                <span class="bi bi-card-checklist-nav-menu" aria-hidden="true"></span>
-                Suscripciones
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="facturacion-mensual">
-                <span class="bi bi-receipt-nav-menu" aria-hidden="true"></span>
-                Facturación mensual
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="caja-diaria">
-                <span class="bi bi-cash-stack-nav-menu" aria-hidden="true"></span>
-                Caja diaria
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="cobranza">
-                <span class="bi bi-cash-coin-nav-menu" aria-hidden="true"></span>
-                Cobranza
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="reporte-deudas">
-                <span class="bi bi-exclamation-triangle-nav-menu" aria-hidden="true"></span>
-                Reporte de deudas
-            </NavLink>
-        </div>
-
-    </nav>
-</div>
+        await JSRuntime.InvokeVoidAsync("eval", @"
+            document.querySelector('.sidebar')?.classList.remove('sidebar-collapsed');
+        ");
+    }
+}

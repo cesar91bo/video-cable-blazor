@@ -6,6 +6,7 @@
 @using VideoCable.Domain.Enums
 @using VideoCable.Infrastructure.Data
 @using CajaDiariaEntity = VideoCable.Domain.Entities.CajaDiaria
+@using System.Globalization
 
 @inject AppDbContext DbContext
 
@@ -29,7 +30,7 @@
 else
 {
     <div class="row mt-4 g-3">
-        <div class="col-md-3">
+        <div class="col-md-4">
             <div class="dashboard-card">
                 <div class="dashboard-label">Caja diaria</div>
                 <div class="dashboard-value">
@@ -55,7 +56,7 @@ else
             </div>
         </div>
 
-        <div class="col-md-3">
+        <div class="col-md-4">
             <div class="dashboard-card">
                 <div class="dashboard-label">Cobrado hoy</div>
                 <div class="dashboard-value">@cobradoHoy.ToString("C0")</div>
@@ -63,19 +64,79 @@ else
             </div>
         </div>
 
-        <div class="col-md-3">
+        @* <div class="col-md-3">
             <div class="dashboard-card">
                 <div class="dashboard-label">Facturas pendientes</div>
                 <div class="dashboard-value">@cantidadFacturasPendientes</div>
                 <div class="dashboard-subtitle">Deuda: @deudaPendiente.ToString("C0")</div>
             </div>
-        </div>
+        </div> *@
 
-        <div class="col-md-3">
+        <div class="col-md-4">
             <div class="dashboard-card">
                 <div class="dashboard-label">Facturado mes actual</div>
                 <div class="dashboard-value">@facturadoMes.ToString("C0")</div>
                 <div class="dashboard-subtitle">@cantidadFacturasMes facturas generadas</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4 g-3">
+        <div class="col-md-12">
+            <div class="card dashboard-clientes-card">
+                <div class="card-header">
+                    Estado general de clientes
+                </div>
+
+                <div class="card-body">
+                    <div class="clientes-dashboard-layout">
+                        <div class="clientes-pie-container">
+                            <div class="clientes-pie" style="@graficoClientesStyle"></div>
+
+                            <div class="clientes-pie-total">
+                                <strong>@totalClientesClasificados</strong>
+                                <span>clientes</span>
+                            </div>
+                        </div>
+
+                        <div class="clientes-resumen">
+                            <div class="clientes-resumen-item normal">
+                                <div class="clientes-resumen-numero">@clientesNormal</div>
+                                <div>
+                                    <div class="fw-semibold">Normal</div>
+                                    <div class="text-muted small">Activos sin deuda</div>
+                                </div>
+                            </div>
+
+                            <div class="clientes-resumen-item precaucion">
+                                <div class="clientes-resumen-numero">@clientesPrecaucion</div>
+                                <div>
+                                    <div class="fw-semibold">Precaución</div>
+                                    <div class="text-muted small">Activos con 1 mes adeudado</div>
+                                </div>
+                            </div>
+
+                            <div class="clientes-resumen-item deudores">
+                                <div class="clientes-resumen-numero">@clientesDeudores</div>
+                                <div>
+                                    <div class="fw-semibold">Deudores</div>
+                                    <div class="text-muted small">Activos con 2 o más meses adeudados</div>
+                                </div>
+                            </div>
+
+                            @if (clientesOtros > 0)
+                            {
+                                <div class="clientes-resumen-item otros">
+                                    <div class="clientes-resumen-numero">@clientesOtros</div>
+                                    <div>
+                                        <div class="fw-semibold">Otros</div>
+                                        <div class="text-muted small">Suspendidos, baja o sin activa</div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -223,8 +284,16 @@ else
     private decimal cobradoHoy;
     private int cantidadPagosHoy;
 
+    private List<PagoResumen> ultimosPagos = new();
+    private List<MovimientoCaja> movimientosHoy = new();
     private int cantidadFacturasPendientes;
     private decimal deudaPendiente;
+    private int clientesNormal;
+    private int clientesPrecaucion;
+    private int clientesDeudores;
+    private int clientesOtros;
+    private int totalClientesClasificados;
+    private string graficoClientesStyle = "";
 
     private decimal facturadoMes;
     private int cantidadFacturasMes;
@@ -236,8 +305,7 @@ else
     private decimal egresosCajaHoy;
     private decimal saldoCajaHoy;
 
-    private List<PagoResumen> ultimosPagos = new();
-    private List<MovimientoCaja> movimientosHoy = new();
+    
 
     protected override async Task OnInitializedAsync()
     {
@@ -280,6 +348,81 @@ else
         cantidadFacturasPendientes = facturasConDeuda.Count;
         deudaPendiente = facturasConDeuda
             .Sum(x => x.Total - x.PagoAplicaciones.Sum(p => p.MontoAplicado));
+
+        var deudaPorCliente = facturasConDeuda
+    .Select(x => new
+    {
+        x.ClienteId,
+        x.PeriodoAnio,
+        x.PeriodoMes,
+        Saldo = x.Total - x.PagoAplicaciones.Sum(p => p.MontoAplicado)
+    })
+    .Where(x => x.Saldo > 0)
+    .GroupBy(x => x.ClienteId)
+    .ToDictionary(
+        g => g.Key,
+        g => new
+        {
+            TotalDeuda = g.Sum(x => x.Saldo),
+            MesesAdeudados = g
+                .Select(x => new { x.PeriodoAnio, x.PeriodoMes })
+                .Distinct()
+                .Count()
+        });
+
+        var suscripcionesClientes = await DbContext.Suscripciones
+            .AsNoTracking()
+            .Include(x => x.Cliente)
+            .Where(x => !x.IsDeleted && x.Cliente.Activo)
+            .ToListAsync();
+
+        var clientesClasificados = suscripcionesClientes
+            .GroupBy(x => x.ClienteId)
+            .Select(g => new
+            {
+                ClienteId = g.Key,
+                TieneActiva = g.Any(x => x.EstadoActual == EstadoSuscripcionTipo.Activo),
+                TieneSuspendida = g.Any(x => x.EstadoActual == EstadoSuscripcionTipo.Suspendido),
+                TieneBaja = g.Any(x => x.EstadoActual == EstadoSuscripcionTipo.Baja)
+            })
+            .ToList();
+
+        clientesNormal = 0;
+        clientesPrecaucion = 0;
+        clientesDeudores = 0;
+        clientesOtros = 0;
+
+        foreach (var cliente in clientesClasificados)
+        {
+            if (!cliente.TieneActiva)
+            {
+                clientesOtros++;
+                continue;
+            }
+
+            if (!deudaPorCliente.TryGetValue(cliente.ClienteId, out var deudaCliente))
+            {
+                clientesNormal++;
+                continue;
+            }
+
+            if (deudaCliente.MesesAdeudados >= 2)
+            {
+                clientesDeudores++;
+            }
+            else if (deudaCliente.MesesAdeudados == 1)
+            {
+                clientesPrecaucion++;
+            }
+            else
+            {
+                clientesNormal++;
+            }
+        }
+
+        totalClientesClasificados = clientesNormal + clientesPrecaucion + clientesDeudores + clientesOtros;
+
+        ActualizarGraficoClientes();
 
         var facturasMes = await DbContext.Facturas
             .AsNoTracking()
@@ -334,6 +477,30 @@ else
         cargando = false;
     }
 
+    private void ActualizarGraficoClientes()
+    {
+        if (totalClientesClasificados <= 0)
+        {
+            graficoClientesStyle = "background: #e5e7eb;";
+            return;
+        }
+
+        decimal normalFin = clientesNormal * 360m / totalClientesClasificados;
+        decimal precaucionFin = normalFin + clientesPrecaucion * 360m / totalClientesClasificados;
+        decimal deudoresFin = precaucionFin + clientesDeudores * 360m / totalClientesClasificados;
+
+        string n1 = normalFin.ToString("0.##", CultureInfo.InvariantCulture);
+        string n2 = precaucionFin.ToString("0.##", CultureInfo.InvariantCulture);
+        string n3 = deudoresFin.ToString("0.##", CultureInfo.InvariantCulture);
+
+        graficoClientesStyle =
+            $"background: conic-gradient(" +
+            $"#198754 0deg {n1}deg, " +
+            $"#ffc107 {n1}deg {n2}deg, " +
+            $"#dc3545 {n2}deg {n3}deg, " +
+            $"#6c757d {n3}deg 360deg);";
+    }
+
     private class PagoResumen
     {
         public DateTime Fecha { get; set; }
@@ -383,4 +550,145 @@ else
             z-index: 2;
             background: #f8f9fa;
         }
+
+    .dashboard-clientes-card {
+        min-height: 260px;
+    }
+
+    .clientes-dashboard-layout {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3rem;
+        flex-wrap: wrap;
+    }
+
+    .clientes-pie-container {
+        position: relative;
+        width: 190px;
+        height: 190px;
+        flex: 0 0 auto;
+    }
+
+    .clientes-pie {
+        width: 190px;
+        height: 190px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+    }
+
+        .clientes-pie::after {
+            content: "";
+            position: absolute;
+            inset: 42px;
+            background: #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.05);
+        }
+
+    .clientes-pie-total {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+        .clientes-pie-total strong {
+            font-size: 2.25rem;
+            line-height: 1;
+            color: #111827;
+        }
+
+        .clientes-pie-total span {
+            font-size: 0.9rem;
+            color: #6b7280;
+            margin-top: 0.15rem;
+        }
+
+    .clientes-resumen {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+        gap: 1rem;
+        min-width: 520px;
+    }
+
+    .clientes-resumen-item {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-left-width: 6px;
+        border-radius: 0.85rem;
+        padding: 1rem;
+    }
+
+        .clientes-resumen-item.normal {
+            border-left-color: #198754;
+        }
+
+        .clientes-resumen-item.precaucion {
+            border-left-color: #ffc107;
+        }
+
+        .clientes-resumen-item.deudores {
+            border-left-color: #dc3545;
+        }
+
+        .clientes-resumen-item.otros {
+            border-left-color: #6c757d;
+        }
+
+    .clientes-resumen-numero {
+        min-width: 54px;
+        height: 54px;
+        border-radius: 999px;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.35rem;
+        font-weight: 800;
+        color: #111827;
+    }
+
+    @@media (max-width: 992px) {
+        .clientes-dashboard-layout {
+            gap: 1.5rem;
+        }
+
+        .clientes-resumen {
+            min-width: 100%;
+            grid-template-columns: 1fr;
+        }
+    }
+
+    @@media (max-width: 768px) {
+        .clientes-pie-container {
+            width: 155px;
+            height: 155px;
+        }
+
+        .clientes-pie {
+            width: 155px;
+            height: 155px;
+        }
+
+            .clientes-pie::after {
+                inset: 34px;
+            }
+
+        .clientes-pie-total strong {
+            font-size: 1.8rem;
+        }
+
+        .clientes-pie-total span {
+            font-size: 0.8rem;
+        }
+    }
 </style>
