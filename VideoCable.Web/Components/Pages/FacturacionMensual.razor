@@ -71,9 +71,122 @@
                     Consultar período
                 </button>
             </div>
+
+            <div class="mt-3">
+                <button class="btn btn-outline-primary" @onclick="MostrarCargaManual">
+                    Cargar factura manual
+                </button>
+            </div>
         </div>
     </div>
 </div>
+
+@if (mostrandoCargaManual)
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            Carga manual de factura
+        </div>
+
+        <div class="card-body">
+            <div class="alert alert-info">
+                Usá esta opción para cargar facturas de períodos anteriores durante la migración desde el sistema viejo.
+            </div>
+
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Buscar cliente</label>
+                    <input class="form-control"
+                           placeholder="Nombre, código, documento o CUIT..."
+                           value="@busquedaClienteManual"
+                           @oninput="BuscarClientesManual" />
+
+                    <select class="form-select mt-2" value="@clienteManualId" @onchange="OnClienteManualChanged">
+                        <option value="0">Seleccionar cliente...</option>
+                        @foreach (var cliente in clientesManual)
+                        {
+                            <option value="@cliente.Id">@cliente.Codigo - @cliente.Nombre</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Suscripción</label>
+                    <select class="form-select" value="@suscripcionManualId" @onchange="OnSuscripcionManualChanged">
+                        <option value="0">Seleccionar suscripción...</option>
+                        @foreach (var suscripcion in suscripcionesManual)
+                        {
+                            <option value="@suscripcion.Id">
+                                @suscripcion.ServicioPlan.Descripcion - @suscripcion.CajaDistribucion.Descripcion
+                            </option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label">Mes</label>
+                    <select class="form-select" @bind="manualMes">
+                        @for (var mes = 1; mes <= 12; mes++)
+                        {
+                            <option value="@mes">@mes.ToString("00")</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label">Año</label>
+                    <InputNumber class="form-control" @bind-Value="manualAnio" />
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Servicio facturado</label>
+                    <select class="form-select" value="@servicioManualId" @onchange="OnServicioManualChanged">
+                        <option value="0">Seleccionar servicio...</option>
+                        @foreach (var servicio in serviciosManual)
+                        {
+                            <option value="@servicio.Id">@servicio.Descripcion</option>
+                        }
+                    </select>
+                    <div class="text-muted small mt-1">
+                        Se completa con el servicio actual de la suscripción, pero podés cambiarlo.
+                    </div>
+                </div>
+
+                <div class="col-md-2">
+                    <label class="form-label">Monto</label>
+                    <InputNumber class="form-control" @bind-Value="manualMonto" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Fecha emisión</label>
+                    <InputDate class="form-control" @bind-Value="manualFechaEmision" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Fecha vencimiento</label>
+                    <InputDate class="form-control" @bind-Value="manualFechaVencimiento" />
+                </div>
+
+                <div class="col-md-12">
+                    <label class="form-label">Observaciones</label>
+                    <input class="form-control"
+                           placeholder="Ej: deuda migrada desde sistema anterior"
+                           @bind="manualObservaciones" />
+                </div>
+
+                <div class="col-md-12 d-flex gap-2">
+                    <button class="btn btn-success" @onclick="GuardarFacturaManual">
+                        Guardar factura manual
+                    </button>
+
+                    <button class="btn btn-outline-secondary" @onclick="CancelarCargaManual">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
 
 @if (resultadoGeneracion is not null)
 {
@@ -178,8 +291,28 @@ else
 
     private ResultadoGeneracion? resultadoGeneracion;
 
+    private bool mostrandoCargaManual;
+
+    private string? busquedaClienteManual;
+    private List<Cliente> clientesManual = new();
+    private int clienteManualId;
+
+    private List<Suscripcion> suscripcionesManual = new();
+    private int suscripcionManualId;
+
+    private List<ServicioPlan> serviciosManual = new();
+    private int servicioManualId;
+
+    private int manualMes = DateTime.Today.Month;
+    private int manualAnio = DateTime.Today.Year;
+    private DateTime manualFechaEmision = DateTime.Today;
+    private DateTime manualFechaVencimiento = DateTime.Today.AddDays(10);
+    private decimal manualMonto;
+    private string? manualObservaciones;
+
     protected override async Task OnInitializedAsync()
     {
+        await CargarServiciosManual();
         await CargarFacturasPeriodo();
     }
 
@@ -335,6 +468,15 @@ else
             .ToListAsync();
     }
 
+    private async Task CargarServiciosManual()
+    {
+        serviciosManual = await DbContext.ServiciosPlan
+            .AsNoTracking()
+            .Where(x => x.Activo && x.TipoCobro == TipoCobroServicio.Mensual)
+            .OrderBy(x => x.Descripcion)
+            .ToListAsync();
+    }
+
     private void ValidarPeriodo()
     {
         if (periodoMes < 1 || periodoMes > 12)
@@ -342,6 +484,287 @@ else
 
         if (periodoAnio < 2020 || periodoAnio > 2100)
             erroresValidacion.Add("El año no es válido.");
+    }
+
+    private void MostrarCargaManual()
+    {
+        mostrandoCargaManual = true;
+
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+
+        manualMes = periodoMes;
+        manualAnio = periodoAnio;
+        manualFechaEmision = DateTime.Today;
+        manualFechaVencimiento = new DateTime(manualAnio, manualMes, 1)
+            .AddMonths(1)
+            .AddDays(9);
+
+        manualMonto = 0;
+        manualObservaciones = null;
+        clienteManualId = 0;
+        suscripcionManualId = 0;
+        servicioManualId = 0;
+        busquedaClienteManual = null;
+
+        clientesManual = new();
+        suscripcionesManual = new();
+    }
+
+    private void CancelarCargaManual()
+    {
+        mostrandoCargaManual = false;
+
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+    }
+
+    private async Task BuscarClientesManual(ChangeEventArgs e)
+    {
+        busquedaClienteManual = e.Value?.ToString();
+
+        clientesManual = new();
+        clienteManualId = 0;
+        suscripcionManualId = 0;
+        suscripcionesManual = new();
+
+        if (string.IsNullOrWhiteSpace(busquedaClienteManual))
+            return;
+
+        var texto = busquedaClienteManual.Trim();
+
+        if (texto.Length < 3)
+            return;
+
+        clientesManual = await DbContext.Clientes
+            .AsNoTracking()
+            .Where(x =>
+                x.Activo &&
+                (
+                    x.Nombre.Contains(texto) ||
+                    x.Codigo.ToString().Contains(texto) ||
+                    (x.NumeroDocumento != null && x.NumeroDocumento.Contains(texto)) ||
+                    (x.Cuit != null && x.Cuit.Contains(texto))
+                ))
+            .OrderBy(x => x.Nombre)
+            .Take(50)
+            .ToListAsync();
+    }
+
+    private async Task OnClienteManualChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out clienteManualId))
+            clienteManualId = 0;
+
+        suscripcionManualId = 0;
+        servicioManualId = 0;
+        manualMonto = 0;
+        suscripcionesManual = new();
+
+        if (clienteManualId <= 0)
+            return;
+
+        suscripcionesManual = await DbContext.Suscripciones
+            .AsNoTracking()
+            .Include(x => x.ServicioPlan)
+            .Include(x => x.CajaDistribucion)
+            .Where(x => x.ClienteId == clienteManualId && !x.IsDeleted)
+            .OrderByDescending(x => x.EstadoActual == EstadoSuscripcionTipo.Activo)
+            .ThenBy(x => x.ServicioPlan.Descripcion)
+            .ToListAsync();
+
+        if (suscripcionesManual.Count == 1)
+        {
+            await SeleccionarSuscripcionManual(suscripcionesManual[0].Id);
+        }
+    }
+
+    private async Task OnSuscripcionManualChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var id))
+            id = 0;
+
+        await SeleccionarSuscripcionManual(id);
+    }
+
+    private async Task SeleccionarSuscripcionManual(int suscripcionId)
+    {
+        suscripcionManualId = suscripcionId;
+        servicioManualId = 0;
+        manualMonto = 0;
+
+        if (suscripcionManualId <= 0)
+            return;
+
+        var suscripcion = suscripcionesManual
+            .FirstOrDefault(x => x.Id == suscripcionManualId);
+
+        if (suscripcion is null)
+            return;
+
+        servicioManualId = suscripcion.ServicioPlanId;
+        manualMonto = suscripcion.PrecioActualSnapshot;
+
+        await Task.CompletedTask;
+    }
+
+    private void OnServicioManualChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out servicioManualId))
+            servicioManualId = 0;
+
+        var servicio = serviciosManual.FirstOrDefault(x => x.Id == servicioManualId);
+
+        if (servicio is not null)
+        {
+            manualMonto = servicio.PrecioActual;
+        }
+    }
+
+    private async Task GuardarFacturaManual()
+    {
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+
+        if (clienteManualId <= 0)
+            erroresValidacion.Add("Debe seleccionar un cliente.");
+
+        if (suscripcionManualId <= 0)
+            erroresValidacion.Add("Debe seleccionar una suscripción.");
+
+        if (servicioManualId <= 0)
+            erroresValidacion.Add("Debe seleccionar un servicio.");
+
+        if (manualMes < 1 || manualMes > 12)
+            erroresValidacion.Add("El mes no es válido.");
+
+        if (manualAnio < 2020 || manualAnio > 2100)
+            erroresValidacion.Add("El año no es válido.");
+
+        if (manualMonto <= 0)
+            erroresValidacion.Add("El monto debe ser mayor a cero.");
+
+        if (manualFechaVencimiento < manualFechaEmision)
+            erroresValidacion.Add("La fecha de vencimiento no puede ser anterior a la fecha de emisión.");
+
+        if (erroresValidacion.Any())
+            return;
+
+        try
+        {
+            var empresa = await DbContext.Empresas
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Activa);
+
+            if (empresa is null)
+            {
+                error = "No existe una empresa activa configurada.";
+                return;
+            }
+
+            var suscripcion = await DbContext.Suscripciones
+                .AsNoTracking()
+                .Include(x => x.Cliente)
+                .Include(x => x.CajaDistribucion)
+                .FirstAsync(x => x.Id == suscripcionManualId);
+
+            var servicio = await DbContext.ServiciosPlan
+                .AsNoTracking()
+                .FirstAsync(x => x.Id == servicioManualId);
+
+            var yaExiste = await DbContext.Facturas
+                .AsNoTracking()
+                .AnyAsync(x =>
+                    x.SuscripcionId == suscripcion.Id &&
+                    x.PeriodoAnio == manualAnio &&
+                    x.PeriodoMes == manualMes);
+
+            if (yaExiste)
+            {
+                erroresValidacion.Add("Ya existe una factura para esa suscripción y ese período.");
+                return;
+            }
+
+            var factura = new Factura
+            {
+                EmpresaId = empresa.Id,
+                ClienteId = suscripcion.ClienteId,
+                SuscripcionId = suscripcion.Id,
+
+                PeriodoAnio = manualAnio,
+                PeriodoMes = manualMes,
+
+                FechaEmision = manualFechaEmision,
+                FechaVencimiento = manualFechaVencimiento,
+
+                TipoComprobante = TipoComprobante.FacturaX,
+                EstadoFiscal = EstadoFiscalFactura.NoRequiereAutorizacion,
+                EstadoCobranza = EstadoCobranzaFactura.Pendiente,
+
+                Subtotal = manualMonto,
+                ImporteIva = 0,
+                Total = manualMonto,
+
+                Observaciones = string.IsNullOrWhiteSpace(manualObservaciones)
+                    ? "Carga manual de factura migrada"
+                    : $"Carga manual de factura migrada. {manualObservaciones.Trim()}",
+
+                ClienteNombreSnapshot = suscripcion.Cliente.Nombre,
+                ClienteDocumentoSnapshot = suscripcion.Cliente.NumeroDocumento,
+                ClienteCuitSnapshot = suscripcion.Cliente.Cuit,
+                ClienteCondicionIvaSnapshot = suscripcion.Cliente.RegimenImpositivo.ToString(),
+                ClienteDireccionSnapshot = suscripcion.Cliente.Direccion,
+
+                ServicioDescripcionSnapshot = servicio.Descripcion,
+                ServicioTipoSnapshot = servicio.TipoServicio.ToString(),
+                CajaDescripcionSnapshot = suscripcion.CajaDistribucion.Descripcion,
+
+                EmpresaRazonSocialSnapshot = empresa.RazonSocial,
+                EmpresaCuitSnapshot = empresa.Cuit,
+                EmpresaCondicionIvaSnapshot = empresa.CondicionIva.ToString(),
+                EmpresaDireccionSnapshot = empresa.Direccion,
+
+                CreatedAt = DateTime.Now
+            };
+
+            factura.Items.Add(new FacturaItem
+            {
+                SuscripcionId = suscripcion.Id,
+                ServicioPlanId = servicio.Id,
+                Descripcion = $"{servicio.Descripcion} - período {manualMes:00}/{manualAnio}",
+                Cantidad = 1,
+                PrecioUnitario = manualMonto,
+                AlicuotaIva = 0,
+                Subtotal = manualMonto,
+                ImporteIva = 0,
+                Total = manualMonto
+            });
+
+            DbContext.Facturas.Add(factura);
+
+            await DbContext.SaveChangesAsync();
+
+            periodoMes = manualMes;
+            periodoAnio = manualAnio;
+
+            mensaje = "Factura manual cargada correctamente.";
+            mostrandoCargaManual = false;
+
+            await CargarFacturasPeriodo();
+        }
+        catch (DbUpdateException ex)
+        {
+            error = "No se pudo guardar la factura manual. Puede existir una factura duplicada para ese período.";
+            Console.WriteLine(ex.ToString());
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al guardar la factura manual: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
     }
 
     private class ResultadoGeneracion
