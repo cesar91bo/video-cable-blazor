@@ -122,3 +122,30 @@ public enum TipoCobroServicio
     Mensual = 1,
     Puntual = 2
 }
+
+public enum EstadoReclamo
+{
+    Abierto = 1,
+    EnProceso = 2,
+    Resuelto = 3,
+    Cerrado = 4,
+    Cancelado = 5
+}
+
+public enum TipoReclamo
+{
+    SinSenal = 1,
+    InternetLento = 2,
+    CorteServicio = 3,
+    Facturacion = 4,
+    ReclamoTecnico = 5,
+    Otro = 99
+}
+
+public enum PrioridadReclamo
+{
+    Baja = 1,
+    Media = 2,
+    Alta = 3,
+    Urgente = 4
+}

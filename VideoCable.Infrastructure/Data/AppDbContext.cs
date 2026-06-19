@@ -37,6 +37,8 @@ public class AppDbContext : DbContext
     public DbSet<CajaDiaria> CajasDiarias => Set<CajaDiaria>();
     public DbSet<MovimientoCaja> MovimientosCaja => Set<MovimientoCaja>();
 
+    public DbSet<Reclamo> Reclamos => Set<Reclamo>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

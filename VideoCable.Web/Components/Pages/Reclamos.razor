@@ -1,0 +1,768 @@
+﻿@page "/reclamos"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+@using VideoCable.Web.Helpers
+
+@inject AppDbContext DbContext
+
+<PageTitle>Reclamos</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Reclamos</h1>
+        <p class="text-muted mb-0">Registro y seguimiento de reclamos de clientes.</p>
+    </div>
+
+    <button class="btn btn-primary" @onclick="NuevoReclamo">
+        Nuevo reclamo
+    </button>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(mensaje))
+{
+    <div class="alert alert-success mt-3">
+        @mensaje
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger mt-3">
+        @error
+    </div>
+}
+
+<div class="card mt-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Buscar cliente / texto</label>
+                <input class="form-control"
+                       placeholder="Cliente, código, documento, descripción..."
+                       value="@busqueda"
+                       @oninput="OnBusquedaInput" />
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label">Estado</label>
+                <select class="form-select" @bind="filtroEstado">
+                    <option value="0">Todos</option>
+                    @foreach (var estado in Enum.GetValues<EstadoReclamo>())
+                    {
+                        <option value="@((int)estado)">@estado.GetDisplayName()</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label">Tipo</label>
+                <select class="form-select" @bind="filtroTipo">
+                    <option value="0">Todos</option>
+                    @foreach (var tipo in Enum.GetValues<TipoReclamo>())
+                    {
+                        <option value="@((int)tipo)">@tipo.GetDisplayName()</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-2">
+                <label class="form-label">Prioridad</label>
+                <select class="form-select" @bind="filtroPrioridad">
+                    <option value="0">Todas</option>
+                    @foreach (var prioridad in Enum.GetValues<PrioridadReclamo>())
+                    {
+                        <option value="@((int)prioridad)">@prioridad.GetDisplayName()</option>
+                    }
+                </select>
+            </div>
+
+            <div class="col-md-2 d-flex align-items-end">
+                <button class="btn btn-primary w-100" @onclick="CargarReclamos">
+                    Buscar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (editando)
+{
+    <div class="card mt-4">
+        <div class="card-header">
+            @(reclamoEditando.Id == 0 ? "Nuevo reclamo" : "Editar reclamo")
+        </div>
+
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Buscar cliente</label>
+                    <input class="form-control"
+                           placeholder="Nombre, código, documento o CUIT..."
+                           value="@busquedaCliente"
+                           @oninput="BuscarClientes" />
+
+                    <select class="form-select mt-2" value="@reclamoEditando.ClienteId" @onchange="OnClienteChanged">
+                        <option value="0">Seleccionar cliente...</option>
+                        @foreach (var cliente in clientesFiltrados)
+                        {
+                            <option value="@cliente.Id">@cliente.Codigo - @cliente.Nombre</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Suscripción</label>
+                    <select class="form-select" value="@reclamoEditando.SuscripcionId" @onchange="OnSuscripcionChanged">
+                        <option value="">Sin suscripción específica</option>
+                        @foreach (var suscripcion in suscripcionesCliente)
+                        {
+                            <option value="@suscripcion.Id">
+                                @suscripcion.ServicioPlan.Descripcion - @suscripcion.CajaDistribucion.Descripcion
+                            </option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label">Caja</label>
+                    <select class="form-select" @bind="reclamoEditando.CajaDistribucionId">
+                        <option value="">Sin caja específica</option>
+                        @foreach (var caja in cajas)
+                        {
+                            <option value="@caja.Id">@caja.Codigo - @caja.Descripcion</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Fecha</label>
+                    <InputDate class="form-control" @bind-Value="reclamoEditando.FechaReclamo" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Tipo</label>
+                    <select class="form-select" @bind="reclamoEditando.Tipo">
+                        @foreach (var tipo in Enum.GetValues<TipoReclamo>())
+                        {
+                            <option value="@tipo">@tipo.GetDisplayName()</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Prioridad</label>
+                    <select class="form-select" @bind="reclamoEditando.Prioridad">
+                        @foreach (var prioridad in Enum.GetValues<PrioridadReclamo>())
+                        {
+                            <option value="@prioridad">@prioridad.GetDisplayName()</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Estado</label>
+                    <select class="form-select" @bind="reclamoEditando.Estado">
+                        @foreach (var estado in Enum.GetValues<EstadoReclamo>())
+                        {
+                            <option value="@estado">@estado.GetDisplayName()</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-md-12">
+                    <label class="form-label">Descripción del reclamo</label>
+                    <textarea class="form-control"
+                              rows="3"
+                              placeholder="Ej: cliente informa corte de servicio, internet lento, sin señal..."
+                              @bind="reclamoEditando.Descripcion"></textarea>
+                </div>
+
+                <div class="col-md-12">
+                    <label class="form-label">Observaciones internas</label>
+                    <textarea class="form-control"
+                              rows="2"
+                              placeholder="Notas internas del operador o técnico..."
+                              @bind="reclamoEditando.ObservacionesInternas"></textarea>
+                </div>
+
+                <div class="col-md-12">
+                    <label class="form-label">Resolución</label>
+                    <textarea class="form-control"
+                              rows="2"
+                              placeholder="Qué se hizo para resolver el reclamo..."
+                              @bind="reclamoEditando.Resolucion"></textarea>
+                </div>
+            </div>
+
+            <div class="mt-4 d-flex gap-2">
+                <button class="btn btn-success" @onclick="GuardarReclamo">
+                    Guardar
+                </button>
+
+                <button class="btn btn-outline-secondary" @onclick="CancelarEdicion">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@if (cargando)
+{
+    <p class="mt-4">Cargando reclamos...</p>
+}
+else
+{
+    <div class="row mt-4 g-3">
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Abiertos</div>
+                <div class="dashboard-value text-danger">@cantidadAbiertos</div>
+                <div class="dashboard-subtitle">Pendientes de atención</div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">En proceso</div>
+                <div class="dashboard-value text-warning">@cantidadEnProceso</div>
+                <div class="dashboard-subtitle">En seguimiento</div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Resueltos</div>
+                <div class="dashboard-value text-success">@cantidadResueltos</div>
+                <div class="dashboard-subtitle">Solucionados</div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <div class="dashboard-card">
+                <div class="dashboard-label">Total listado</div>
+                <div class="dashboard-value">@reclamos.Count</div>
+                <div class="dashboard-subtitle">Según filtros actuales</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header">
+            Reclamos registrados
+        </div>
+
+        <div class="table-responsive grid-scroll">
+            <table class="table table-striped table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th>Fecha</th>
+                        <th>Cliente</th>
+                        <th>Tipo</th>
+                        <th>Prioridad</th>
+                        <th>Estado</th>
+                        <th>Descripción</th>
+                        <th>Caja</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var reclamo in reclamos)
+                    {
+                        <tr class="@GetClaseFila(reclamo)">
+                            <td>@reclamo.FechaReclamo.ToString("dd/MM/yyyy HH:mm")</td>
+
+                            <td>
+                                <div class="fw-semibold">@reclamo.Cliente.Nombre</div>
+                                <div class="text-muted small">Código @reclamo.Cliente.Codigo</div>
+                            </td>
+
+                            <td>@reclamo.Tipo.GetDisplayName()</td>
+
+                            <td>
+                                <span class="@GetClasePrioridad(reclamo.Prioridad)">
+                                    @reclamo.Prioridad.GetDisplayName()
+                                </span>
+                            </td>
+
+                            <td>
+                                <span class="@GetClaseEstado(reclamo.Estado)">
+                                    @reclamo.Estado.GetDisplayName()
+                                </span>
+                            </td>
+
+                            <td>
+                                <div class="descripcion-corta">
+                                    @reclamo.Descripcion
+                                </div>
+                            </td>
+
+                            <td>
+                                @if (reclamo.CajaDistribucion is not null)
+                                {
+                                    <span>@reclamo.CajaDistribucion.Codigo - @reclamo.CajaDistribucion.Descripcion</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Sin caja</span>
+                                }
+                            </td>
+
+                            <td class="text-end">
+                                <div class="btn-group">
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => EditarReclamo(reclamo.Id)">
+                                        Editar
+                                    </button>
+
+                                    @if (reclamo.Estado == EstadoReclamo.Abierto)
+                                    {
+                                        <button class="btn btn-sm btn-outline-warning" @onclick="() => CambiarEstado(reclamo.Id, EstadoReclamo.EnProceso)">
+                                            En proceso
+                                        </button>
+                                    }
+
+                                    @if (reclamo.Estado != EstadoReclamo.Resuelto && reclamo.Estado != EstadoReclamo.Cerrado)
+                                    {
+                                        <button class="btn btn-sm btn-outline-success" @onclick="() => CambiarEstado(reclamo.Id, EstadoReclamo.Resuelto)">
+                                            Resolver
+                                        </button>
+                                    }
+
+                                    @if (reclamo.Estado == EstadoReclamo.Resuelto)
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => CambiarEstado(reclamo.Id, EstadoReclamo.Cerrado)">
+                                            Cerrar
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+
+                    @if (!reclamos.Any())
+                    {
+                        <tr>
+                            <td colspan="8" class="text-muted">
+                                No hay reclamos para los filtros seleccionados.
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private bool cargando = true;
+    private bool editando;
+
+    private string? mensaje;
+    private string? error;
+    private string? busqueda;
+    private string? busquedaCliente;
+
+    private int filtroEstado;
+    private int filtroTipo;
+    private int filtroPrioridad;
+
+    private Reclamo reclamoEditando = new();
+
+    private List<Reclamo> reclamos = new();
+    private List<Cliente> clientesFiltrados = new();
+    private List<Suscripcion> suscripcionesCliente = new();
+    private List<CajaDistribucion> cajas = new();
+
+    private int cantidadAbiertos;
+    private int cantidadEnProceso;
+    private int cantidadResueltos;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarCombosBase();
+        await CargarReclamos();
+    }
+
+    private async Task CargarCombosBase()
+    {
+        cajas = await DbContext.CajasDistribucion
+            .AsNoTracking()
+            .Where(x => x.Activa && !x.IsDeleted)
+            .OrderBy(x => x.Codigo)
+            .ToListAsync();
+    }
+
+    private async Task CargarReclamos()
+    {
+        cargando = true;
+        error = null;
+
+        try
+        {
+            var query = DbContext.Reclamos
+                .AsNoTracking()
+                .Include(x => x.Cliente)
+                .Include(x => x.CajaDistribucion)
+                .Include(x => x.Suscripcion)
+                    .ThenInclude(x => x!.ServicioPlan)
+                .AsQueryable();
+
+            if (filtroEstado > 0)
+                query = query.Where(x => (int)x.Estado == filtroEstado);
+
+            if (filtroTipo > 0)
+                query = query.Where(x => (int)x.Tipo == filtroTipo);
+
+            if (filtroPrioridad > 0)
+                query = query.Where(x => (int)x.Prioridad == filtroPrioridad);
+
+            if (!string.IsNullOrWhiteSpace(busqueda))
+            {
+                var texto = busqueda.Trim();
+
+                query = query.Where(x =>
+                    x.Cliente.Nombre.Contains(texto) ||
+                    x.Cliente.Codigo.ToString().Contains(texto) ||
+                    (x.Cliente.NumeroDocumento != null && x.Cliente.NumeroDocumento.Contains(texto)) ||
+                    (x.Cliente.Cuit != null && x.Cliente.Cuit.Contains(texto)) ||
+                    x.Descripcion.Contains(texto));
+            }
+
+            reclamos = await query
+                .OrderByDescending(x => x.Estado == EstadoReclamo.Abierto)
+                .ThenByDescending(x => x.Prioridad)
+                .ThenByDescending(x => x.FechaReclamo)
+                .Take(300)
+                .ToListAsync();
+
+            cantidadAbiertos = reclamos.Count(x => x.Estado == EstadoReclamo.Abierto);
+            cantidadEnProceso = reclamos.Count(x => x.Estado == EstadoReclamo.EnProceso);
+            cantidadResueltos = reclamos.Count(x =>
+                x.Estado == EstadoReclamo.Resuelto ||
+                x.Estado == EstadoReclamo.Cerrado);
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al cargar reclamos: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+
+        cargando = false;
+    }
+
+    private async Task OnBusquedaInput(ChangeEventArgs e)
+    {
+        busqueda = e.Value?.ToString();
+
+        if (string.IsNullOrWhiteSpace(busqueda) || busqueda.Trim().Length >= 3)
+        {
+            await CargarReclamos();
+        }
+    }
+
+    private void NuevoReclamo()
+    {
+        mensaje = null;
+        error = null;
+
+        reclamoEditando = new Reclamo
+        {
+            FechaReclamo = DateTime.Now,
+            Tipo = TipoReclamo.Otro,
+            Prioridad = PrioridadReclamo.Media,
+            Estado = EstadoReclamo.Abierto,
+            Descripcion = ""
+        };
+
+        clientesFiltrados = new();
+        suscripcionesCliente = new();
+        busquedaCliente = null;
+
+        editando = true;
+    }
+
+    private async Task BuscarClientes(ChangeEventArgs e)
+    {
+        busquedaCliente = e.Value?.ToString();
+
+        clientesFiltrados = new();
+        suscripcionesCliente = new();
+
+        if (string.IsNullOrWhiteSpace(busquedaCliente))
+            return;
+
+        var texto = busquedaCliente.Trim();
+
+        if (texto.Length < 3)
+            return;
+
+        clientesFiltrados = await DbContext.Clientes
+            .AsNoTracking()
+            .Where(x =>
+                x.Activo &&
+                !x.IsDeleted &&
+                (
+                    x.Nombre.Contains(texto) ||
+                    x.Codigo.ToString().Contains(texto) ||
+                    (x.NumeroDocumento != null && x.NumeroDocumento.Contains(texto)) ||
+                    (x.Cuit != null && x.Cuit.Contains(texto))
+                ))
+            .OrderBy(x => x.Nombre)
+            .Take(50)
+            .ToListAsync();
+    }
+
+    private async Task OnClienteChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var clienteId))
+            clienteId = 0;
+
+        reclamoEditando.ClienteId = clienteId;
+        reclamoEditando.SuscripcionId = null;
+        reclamoEditando.CajaDistribucionId = null;
+
+        suscripcionesCliente = new();
+
+        if (clienteId <= 0)
+            return;
+
+        suscripcionesCliente = await DbContext.Suscripciones
+            .AsNoTracking()
+            .Include(x => x.ServicioPlan)
+            .Include(x => x.CajaDistribucion)
+            .Where(x => x.ClienteId == clienteId && !x.IsDeleted)
+            .OrderByDescending(x => x.EstadoActual == EstadoSuscripcionTipo.Activo)
+            .ThenBy(x => x.ServicioPlan.Descripcion)
+            .ToListAsync();
+
+        var primeraSuscripcionActiva = suscripcionesCliente
+            .FirstOrDefault(x => x.EstadoActual == EstadoSuscripcionTipo.Activo);
+
+        if (primeraSuscripcionActiva is not null)
+        {
+            reclamoEditando.SuscripcionId = primeraSuscripcionActiva.Id;
+            reclamoEditando.CajaDistribucionId = primeraSuscripcionActiva.CajaDistribucionId;
+        }
+    }
+
+    private void OnSuscripcionChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString(), out var suscripcionId))
+        {
+            reclamoEditando.SuscripcionId = null;
+            reclamoEditando.CajaDistribucionId = null;
+            return;
+        }
+
+        reclamoEditando.SuscripcionId = suscripcionId;
+
+        var suscripcion = suscripcionesCliente.FirstOrDefault(x => x.Id == suscripcionId);
+
+        if (suscripcion is not null)
+        {
+            reclamoEditando.CajaDistribucionId = suscripcion.CajaDistribucionId;
+        }
+    }
+
+    private async Task EditarReclamo(int id)
+    {
+        mensaje = null;
+        error = null;
+
+        var reclamo = await DbContext.Reclamos
+            .AsNoTracking()
+            .Include(x => x.Cliente)
+            .Include(x => x.Suscripcion)
+                .ThenInclude(x => x!.ServicioPlan)
+            .Include(x => x.Suscripcion)
+                .ThenInclude(x => x!.CajaDistribucion)
+            .FirstAsync(x => x.Id == id);
+
+        reclamoEditando = new Reclamo
+        {
+            Id = reclamo.Id,
+            ClienteId = reclamo.ClienteId,
+            SuscripcionId = reclamo.SuscripcionId,
+            CajaDistribucionId = reclamo.CajaDistribucionId,
+            FechaReclamo = reclamo.FechaReclamo,
+            Tipo = reclamo.Tipo,
+            Prioridad = reclamo.Prioridad,
+            Estado = reclamo.Estado,
+            Descripcion = reclamo.Descripcion,
+            ObservacionesInternas = reclamo.ObservacionesInternas,
+            Resolucion = reclamo.Resolucion,
+            FechaResolucion = reclamo.FechaResolucion,
+            FechaCierre = reclamo.FechaCierre,
+            CreatedAt = reclamo.CreatedAt,
+            CreatedByUserId = reclamo.CreatedByUserId,
+            IsDeleted = reclamo.IsDeleted,
+            RowVersion = reclamo.RowVersion
+        };
+
+        clientesFiltrados = new List<Cliente> { reclamo.Cliente };
+        busquedaCliente = $"{reclamo.Cliente.Codigo} - {reclamo.Cliente.Nombre}";
+
+        suscripcionesCliente = await DbContext.Suscripciones
+            .AsNoTracking()
+            .Include(x => x.ServicioPlan)
+            .Include(x => x.CajaDistribucion)
+            .Where(x => x.ClienteId == reclamo.ClienteId && !x.IsDeleted)
+            .OrderByDescending(x => x.EstadoActual == EstadoSuscripcionTipo.Activo)
+            .ThenBy(x => x.ServicioPlan.Descripcion)
+            .ToListAsync();
+
+        editando = true;
+    }
+
+    private async Task GuardarReclamo()
+    {
+        mensaje = null;
+        error = null;
+
+        if (reclamoEditando.ClienteId <= 0)
+        {
+            error = "Debe seleccionar un cliente.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(reclamoEditando.Descripcion))
+        {
+            error = "Debe ingresar la descripción del reclamo.";
+            return;
+        }
+
+        try
+        {
+            if (reclamoEditando.Estado == EstadoReclamo.Resuelto && reclamoEditando.FechaResolucion is null)
+            {
+                reclamoEditando.FechaResolucion = DateTime.Now;
+            }
+
+            if (reclamoEditando.Estado == EstadoReclamo.Cerrado && reclamoEditando.FechaCierre is null)
+            {
+                reclamoEditando.FechaCierre = DateTime.Now;
+            }
+
+            if (reclamoEditando.Id == 0)
+            {
+                reclamoEditando.CreatedAt = DateTime.Now;
+                DbContext.Reclamos.Add(reclamoEditando);
+            }
+            else
+            {
+                var reclamo = await DbContext.Reclamos
+                    .FirstAsync(x => x.Id == reclamoEditando.Id);
+
+                reclamo.ClienteId = reclamoEditando.ClienteId;
+                reclamo.SuscripcionId = reclamoEditando.SuscripcionId;
+                reclamo.CajaDistribucionId = reclamoEditando.CajaDistribucionId;
+                reclamo.FechaReclamo = reclamoEditando.FechaReclamo;
+                reclamo.Tipo = reclamoEditando.Tipo;
+                reclamo.Prioridad = reclamoEditando.Prioridad;
+                reclamo.Estado = reclamoEditando.Estado;
+                reclamo.Descripcion = reclamoEditando.Descripcion.Trim();
+                reclamo.ObservacionesInternas = reclamoEditando.ObservacionesInternas?.Trim();
+                reclamo.Resolucion = reclamoEditando.Resolucion?.Trim();
+                reclamo.FechaResolucion = reclamoEditando.FechaResolucion;
+                reclamo.FechaCierre = reclamoEditando.FechaCierre;
+                reclamo.UpdatedAt = DateTime.Now;
+            }
+
+            await DbContext.SaveChangesAsync();
+
+            editando = false;
+            mensaje = "Reclamo guardado correctamente.";
+
+            await CargarReclamos();
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al guardar reclamo: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+    }
+
+    private async Task CambiarEstado(int reclamoId, EstadoReclamo nuevoEstado)
+    {
+        mensaje = null;
+        error = null;
+
+        try
+        {
+            var reclamo = await DbContext.Reclamos
+                .FirstAsync(x => x.Id == reclamoId);
+
+            reclamo.Estado = nuevoEstado;
+            reclamo.UpdatedAt = DateTime.Now;
+
+            if (nuevoEstado == EstadoReclamo.Resuelto)
+            {
+                reclamo.FechaResolucion = DateTime.Now;
+            }
+
+            if (nuevoEstado == EstadoReclamo.Cerrado)
+            {
+                reclamo.FechaCierre = DateTime.Now;
+            }
+
+            await DbContext.SaveChangesAsync();
+
+            mensaje = "Estado del reclamo actualizado.";
+
+            await CargarReclamos();
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al cambiar estado: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+    }
+
+    private void CancelarEdicion()
+    {
+        editando = false;
+        mensaje = null;
+        error = null;
+    }
+
+    private string GetClaseFila(Reclamo reclamo)
+    {
+        if (reclamo.Estado == EstadoReclamo.Cerrado || reclamo.Estado == EstadoReclamo.Resuelto)
+            return "";
+
+        return reclamo.Prioridad switch
+        {
+            PrioridadReclamo.Urgente => "table-danger",
+            PrioridadReclamo.Alta => "table-warning",
+            _ => ""
+        };
+    }
+
+    private string GetClasePrioridad(PrioridadReclamo prioridad)
+    {
+        return prioridad switch
+        {
+            PrioridadReclamo.Urgente => "badge bg-danger",
+            PrioridadReclamo.Alta => "badge bg-warning text-dark",
+            PrioridadReclamo.Media => "badge bg-primary",
+            _ => "badge bg-secondary"
+        };
+    }
+
+    private string GetClaseEstado(EstadoReclamo estado)
+    {
+        return estado switch
+        {
+            EstadoReclamo.Abierto => "badge bg-danger",
+            EstadoReclamo.EnProceso => "badge bg-warning text-dark",
+            EstadoReclamo.Resuelto => "badge bg-success",
+            EstadoReclamo.Cerrado => "badge bg-secondary",
+            EstadoReclamo.Cancelado => "badge bg-dark",
+            _ => "badge bg-secondary"
+        };
+    }
+}
