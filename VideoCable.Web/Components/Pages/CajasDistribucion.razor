@@ -6,6 +6,7 @@
 @using VideoCable.Infrastructure.Data
 @using Microsoft.JSInterop
 @using VideoCable.Domain.Enums
+@using System.Globalization
 
 @inject IConfiguration Configuration
 @inject IJSRuntime JSRuntime
@@ -71,16 +72,17 @@
                     <label class="form-label">Latitud</label>
                     <input class="form-control"
                            placeholder="-26.052679"
-                           @bind="latitudTexto" />
+                           @bind="latitudTexto"
+                           @bind:event="oninput" />
                 </div>
 
                 <div class="col-md-3">
                     <label class="form-label">Longitud</label>
                     <input class="form-control"
-                           placeholder="-59.9443198"
-                           @bind="longitudTexto" />
+                           placeholder="-59.944320"
+                           @bind="longitudTexto"
+                           @bind:event="oninput" />
                 </div>
-
                 <div class="col-md-3 d-flex align-items-end">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" @bind="cajaEditando.Activa" />
@@ -312,6 +314,7 @@ else
     private ResumenCajaItem? cajaSeleccionada;
     private List<ClienteCajaItem> clientesCajaSeleccionada = new();
 
+
     protected override async Task OnInitializedAsync()
     {
         await CargarCajas();
@@ -396,40 +399,45 @@ else
         if (!ValidarCoordenadas())
             return;
 
-        if (string.IsNullOrWhiteSpace(cajaEditando.Codigo))
-            return;
-
-        if (string.IsNullOrWhiteSpace(cajaEditando.Descripcion))
-            return;
-
-        if (cajaEditando.Id == 0)
+        try
         {
-            cajaEditando.CreatedAt = DateTime.Now;
-            DbContext.CajasDistribucion.Add(cajaEditando);
+            if (cajaEditando.Id == 0)
+            {
+                cajaEditando.CreatedAt = DateTime.Now;
+
+                DbContext.CajasDistribucion.Add(cajaEditando);
+            }
+            else
+            {
+                var caja = await DbContext.CajasDistribucion
+                    .FirstAsync(x => x.Id == cajaEditando.Id);
+
+                caja.Codigo = cajaEditando.Codigo?.Trim();
+                caja.Descripcion = cajaEditando.Descripcion.Trim();
+                caja.Direccion = cajaEditando.Direccion?.Trim();
+                caja.Zona = cajaEditando.Zona?.Trim();
+
+                caja.Latitud = cajaEditando.Latitud;
+                caja.Longitud = cajaEditando.Longitud;
+
+                caja.Activa = cajaEditando.Activa;
+                caja.UpdatedAt = DateTime.Now;
+            }
+
+            await DbContext.SaveChangesAsync();
+
+            editando = false;
+            mensaje = "Caja guardada correctamente.";
+
+            await CargarCajas();
+            await CargarResumenCajas();
+            await CargarMapa();
         }
-        else
+        catch (Exception ex)
         {
-            var caja = await DbContext.CajasDistribucion
-                .FirstAsync(x => x.Id == cajaEditando.Id);
-
-            caja.Codigo = cajaEditando.Codigo;
-            caja.Descripcion = cajaEditando.Descripcion;
-            caja.Direccion = cajaEditando.Direccion;
-            caja.Zona = cajaEditando.Zona;
-            caja.Latitud = cajaEditando.Latitud;
-            caja.Longitud = cajaEditando.Longitud;
-            caja.Activa = cajaEditando.Activa;
-            caja.UpdatedAt = DateTime.Now;
+            error = $"Error al guardar la caja: {ex.Message}";
+            Console.WriteLine(ex.ToString());
         }
-
-        await DbContext.SaveChangesAsync();
-
-        editando = false;
-        mensaje = "Caja guardada correctamente.";
-
-        await CargarCajas();
-        await CargarResumenCajas();
-        await CargarMapa();
     }
 
     private bool ValidarCoordenadas()
@@ -443,15 +451,15 @@ else
 
             if (!decimal.TryParse(
                     textoLatitud,
-                    System.Globalization.NumberStyles.Number,
-                    System.Globalization.CultureInfo.InvariantCulture,
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
                     out var latitud))
             {
                 error = "La latitud no tiene un formato válido. Ejemplo: -26.052679";
                 return false;
             }
 
-            cajaEditando.Latitud = latitud;
+            cajaEditando.Latitud = Math.Round(latitud, 6);
         }
 
         if (!string.IsNullOrWhiteSpace(longitudTexto))
@@ -460,15 +468,15 @@ else
 
             if (!decimal.TryParse(
                     textoLongitud,
-                    System.Globalization.NumberStyles.Number,
-                    System.Globalization.CultureInfo.InvariantCulture,
+                    NumberStyles.Number,
+                    CultureInfo.InvariantCulture,
                     out var longitud))
             {
-                error = "La longitud no tiene un formato válido. Ejemplo: -59.9443198";
+                error = "La longitud no tiene un formato válido. Ejemplo: -59.944320";
                 return false;
             }
 
-            cajaEditando.Longitud = longitud;
+            cajaEditando.Longitud = Math.Round(longitud, 6);
         }
 
         return true;
