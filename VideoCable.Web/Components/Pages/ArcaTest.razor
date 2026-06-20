@@ -1,0 +1,112 @@
+﻿@page "/arca-test"
+@rendermode InteractiveServer
+
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Services.Arca
+
+@inject ArcaCertificadoService ArcaCertificadoService
+@inject ArcaAuthService ArcaAuthService
+@inject ArcaFacturaService ArcaFacturaService
+
+<PageTitle>Prueba ARCA</PageTitle>
+
+<div class="page-header">
+    <div>
+        <h1>Prueba ARCA</h1>
+        <p class="text-muted mb-0">Prueba de carga del certificado de homologación.</p>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-body">
+        <button class="btn btn-primary" @onclick="ProbarCertificado">
+            Probar certificado homologación
+        </button>
+
+        <button class="btn btn-success ms-2" @onclick="ProbarWsaa">
+            Probar WSAA homologación
+        </button>
+
+        <button class="btn btn-warning ms-2" @onclick="ConsultarUltimo">
+            Consultar último comprobante
+        </button>
+
+        <button class="btn btn-danger ms-2" @onclick="SolicitarCaePrueba">
+            Solicitar CAE prueba
+        </button>
+
+        <div class="row mt-4 g-2">
+            <div class="col-md-3">
+                <label class="form-label">Factura Id</label>
+                <InputNumber class="form-control" @bind-Value="facturaIdPrueba" />
+            </div>
+
+            <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-dark" @onclick="AutorizarFacturaPrueba">
+                    Autorizar factura real
+                </button>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(resultado))
+        {
+            <pre class="mt-4 p-3 bg-light border rounded">@resultado</pre>
+        }
+    </div>
+</div>
+
+@code {
+    private string? resultado;
+
+    private async Task ProbarCertificado()
+    {
+        resultado = await ArcaCertificadoService.ProbarCertificadoAsync(
+            empresaId: 1,
+            ambiente: AmbienteFiscal.Homologacion);
+    }
+
+    private async Task ProbarWsaa()
+    {
+        resultado = "Solicitando Token/Sign a WSAA...";
+        resultado = await ArcaAuthService.ObtenerTokenSignAsync(
+            empresaId: 1,
+            ambiente: AmbienteFiscal.Homologacion,
+            servicio: "wsfe");
+    }
+
+    private async Task ConsultarUltimo()
+    {
+        resultado = "Consultando último comprobante...";
+        resultado = await ArcaFacturaService.ConsultarUltimoComprobanteAsync(
+            empresaId: 1,
+            ambiente: AmbienteFiscal.Homologacion,
+            puntoVenta: 1,
+            tipoComprobante: 6);
+    }
+
+    private async Task SolicitarCaePrueba()
+    {
+        resultado = "Solicitando CAE de prueba...";
+        resultado = await ArcaFacturaService.SolicitarCaeFacturaBPruebaAsync(
+            empresaId: 1,
+            ambiente: AmbienteFiscal.Homologacion,
+            puntoVenta: 1);
+    }
+
+    private int facturaIdPrueba;
+
+    private async Task AutorizarFacturaPrueba()
+    {
+        if (facturaIdPrueba <= 0)
+        {
+            resultado = "Ingresá un Id de factura válido.";
+            return;
+        }
+
+        resultado = "Autorizando factura real en homologación...";
+
+        resultado = await ArcaFacturaService.AutorizarFacturaAsync(
+            facturaIdPrueba,
+            AmbienteFiscal.Homologacion);
+    }
+}

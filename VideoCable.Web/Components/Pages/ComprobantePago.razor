@@ -1,0 +1,306 @@
+﻿@page "/comprobante-pago/{PagoId:int}"
+@rendermode InteractiveServer
+
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Infrastructure.Data
+
+@inject AppDbContext DbContext
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Comprobante de pago</PageTitle>
+
+@if (cargando)
+{
+    <p>Cargando comprobante...</p>
+}
+else if (!string.IsNullOrWhiteSpace(error))
+{
+    <div class="alert alert-danger">
+        @error
+    </div>
+}
+else if (pago is not null)
+{
+    <div class="acciones no-print">
+        <button class="btn btn-primary" @onclick="Imprimir">
+            Imprimir / Guardar PDF
+        </button>
+    </div>
+
+    <div class="comprobante">
+        <div class="comprobante-header">
+            <div>
+                <img src="images/logo.jpg" class="logo" />
+            </div>
+
+            <div class="empresa">
+                <h2>@empresaNombre</h2>
+
+                @if (!string.IsNullOrWhiteSpace(empresaCuit))
+                {
+                    <div>CUIT: @empresaCuit</div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(empresaDireccion))
+                {
+                    <div>Dirección: @empresaDireccion</div>
+                }
+
+                @if (!string.IsNullOrWhiteSpace(empresaTelefono))
+                {
+                    <div>Teléfono: @empresaTelefono</div>
+                }
+            </div>
+
+            <div class="comprobante-tipo">
+                <div class="tipo-box">X</div>
+                <h3>Comprobante de pago</h3>
+                <div>N° @pago.Id.ToString("00000000")</div>
+                <div>Fecha: @pago.Fecha.ToString("dd/MM/yyyy HH:mm")</div>
+            </div>
+        </div>
+
+        <hr />
+
+        <div class="cliente-box">
+            <div><strong>Cliente:</strong> @pago.Cliente.Codigo - @pago.Cliente.Nombre</div>
+            <div><strong>Dirección:</strong> @pago.Cliente.Direccion</div>
+
+            @if (!string.IsNullOrWhiteSpace(pago.Cliente.Cuit))
+            {
+                <div><strong>CUIT:</strong> @pago.Cliente.Cuit</div>
+            }
+            else if (!string.IsNullOrWhiteSpace(pago.Cliente.NumeroDocumento))
+            {
+                <div><strong>Documento:</strong> @pago.Cliente.NumeroDocumento</div>
+            }
+        </div>
+
+        <table class="table table-bordered mt-4">
+            <thead>
+                <tr>
+                    <th>Período</th>
+                    <th>Comprobante</th>
+                    <th>Servicio</th>
+                    <th class="text-end">Importe aplicado</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var aplicacion in pago.Aplicaciones)
+                {
+                    var factura = aplicacion.Factura;
+
+                    <tr>
+                        <td>@factura.PeriodoMes.ToString("00")/@factura.PeriodoAnio</td>
+                        <td>@GetTipoComprobante(factura) @GetNumeroFactura(factura)</td>
+                        <td>@factura.ServicioDescripcionSnapshot</td>
+                        <td class="text-end">@aplicacion.MontoAplicado.ToString("C0")</td>
+                    </tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th colspan="3" class="text-end">Total abonado</th>
+                    <th class="text-end">@pago.Total.ToString("C0")</th>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="mt-4">
+            <strong>Medio de pago:</strong>
+            @detallePago?.MedioPago
+
+            @if (!string.IsNullOrWhiteSpace(detallePago?.Referencia))
+            {
+                <span> - Ref: @detallePago.Referencia</span>
+            }
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(pago.Observaciones))
+        {
+            <div class="mt-2">
+                <strong>Observaciones:</strong> @pago.Observaciones
+            </div>
+        }
+
+        <div class="footer">
+            Este comprobante acredita el pago recibido.
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int PagoId { get; set; }
+
+    private bool cargando = true;
+    private string? error;
+
+    private Pago? pago;
+    private PagoDetalle? detallePago;
+
+    private string empresaNombre = "Video Cable";
+    private string? empresaCuit;
+    private string? empresaDireccion;
+    private string? empresaTelefono;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var empresa = await DbContext.Empresas
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Activa);
+
+            if (empresa is not null)
+            {
+                empresaNombre = !string.IsNullOrWhiteSpace(empresa.NombreFantasia)
+                    ? empresa.NombreFantasia
+                    : empresa.RazonSocial;
+
+                empresaCuit = empresa.Cuit;
+                empresaDireccion = empresa.Direccion;
+                empresaTelefono = empresa.Telefono;
+            }
+
+            pago = await DbContext.Pagos
+                .AsNoTracking()
+                .Include(x => x.Cliente)
+                .Include(x => x.Detalles)
+                .Include(x => x.Aplicaciones)
+                    .ThenInclude(x => x.Factura)
+                .FirstOrDefaultAsync(x => x.Id == PagoId);
+
+            if (pago is null)
+            {
+                error = "No se encontró el pago solicitado.";
+                return;
+            }
+
+            detallePago = pago.Detalles.FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            error = $"Error al cargar comprobante: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+
+        cargando = false;
+    }
+
+    private async Task Imprimir()
+    {
+        await JSRuntime.InvokeVoidAsync("window.print");
+    }
+
+    private string GetTipoComprobante(Factura factura)
+    {
+        return factura.TipoComprobante.ToString();
+    }
+
+    private string GetNumeroFactura(Factura factura)
+    {
+        if (factura.NumeroComprobante.HasValue)
+            return factura.NumeroComprobante.Value.ToString("00000000");
+
+        return $"INT-{factura.Id:00000000}";
+    }
+}
+
+<style>
+    body {
+        background: #f3f4f6;
+    }
+
+    .acciones {
+        max-width: 900px;
+        margin: 1rem auto;
+        display: flex;
+        justify-content: flex-end;
+    }
+
+    .comprobante {
+        max-width: 900px;
+        margin: 1rem auto;
+        background: #ffffff;
+        padding: 2rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.75rem;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+    }
+
+    .comprobante-header {
+        display: grid;
+        grid-template-columns: 160px 1fr 240px;
+        gap: 1rem;
+        align-items: center;
+    }
+
+    .logo {
+        max-width: 145px;
+        max-height: 90px;
+        object-fit: contain;
+    }
+
+    .empresa h2 {
+        margin: 0 0 0.35rem 0;
+        font-size: 1.4rem;
+        font-weight: 800;
+    }
+
+    .comprobante-tipo {
+        text-align: right;
+    }
+
+    .tipo-box {
+        width: 52px;
+        height: 52px;
+        border: 2px solid #111827;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.8rem;
+        font-weight: 800;
+        margin-bottom: 0.5rem;
+    }
+
+    .cliente-box {
+        border: 1px solid #e5e7eb;
+        background: #f9fafb;
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+
+    .footer {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px solid #e5e7eb;
+        color: #6b7280;
+        font-size: 0.85rem;
+    }
+
+    @@media print {
+        .no-print,
+        .sidebar,
+        .top-row {
+            display: none !important;
+        }
+
+        body {
+            background: #ffffff !important;
+        }
+
+        .comprobante {
+            max-width: 100%;
+            margin: 0;
+            padding: 0;
+            border: none;
+            box-shadow: none;
+        }
+
+        .table {
+            font-size: 0.9rem;
+        }
+    }
+</style>

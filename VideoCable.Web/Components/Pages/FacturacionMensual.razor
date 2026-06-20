@@ -6,8 +6,11 @@
 @using VideoCable.Domain.Enums
 @using VideoCable.Infrastructure.Data
 @using VideoCable.Web.Helpers
+@using VideoCable.Infrastructure.Services.Arca
 
 @inject AppDbContext DbContext
+@inject ArcaFacturaService ArcaFacturaService
+@inject NavigationManager Navigation
 
 <PageTitle>Facturación mensual</PageTitle>
 
@@ -220,6 +223,13 @@
     </div>
 }
 
+@if (!string.IsNullOrWhiteSpace(mensajeArca))
+{
+    <div class="alert alert-info mt-3">
+        <pre class="mb-0">@mensajeArca</pre>
+    </div>
+}
+
 @if (facturas is null)
 {
     <p class="mt-4">Cargando facturas...</p>
@@ -241,7 +251,10 @@ else
                         <th>Caja</th>
                         <th>Estado cobranza</th>
                         <th>Estado fiscal</th>
+                        <th>Comprobante</th>
                         <th class="text-end">Total</th>
+                        <th class="text-end">Imprimir</th>
+                        <th class="text-end">ARCA</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -270,8 +283,65 @@ else
                                     <span class="badge bg-secondary">Anulada</span>
                                 }
                             </td>
-                            <td>@factura.EstadoFiscal.GetDisplayName()</td>
+                            <td>
+                                @if (factura.EstadoFiscal == EstadoFiscalFactura.Autorizada)
+                                {
+                                    <span class="badge bg-success">Autorizada</span>
+                                }
+                                else if (factura.EstadoFiscal == EstadoFiscalFactura.Rechazada)
+                                {
+                                    <span class="badge bg-danger">Rechazada</span>
+                                }
+                                else if (factura.EstadoFiscal == EstadoFiscalFactura.PendienteAutorizacion)
+                                {
+                                    <span class="badge bg-warning text-dark">Pendiente ARCA</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary">No fiscal</span>
+                                }
+                            </td>
+
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(factura.NumeroComprobanteFormateado))
+                                {
+                                    <span>@factura.NumeroComprobanteFormateado</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">-</span>
+                                }
+                            </td>
+
                             <td class="text-end">@factura.Total.ToString("C0")</td>
+
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        @onclick="() => VerFactura(factura.Id)">
+                                    Ver / imprimir
+                                </button>
+                            </td>
+
+                            <td class="text-end">
+                                @if (factura.TipoComprobante == TipoComprobante.FacturaX)
+                                {
+                                    <button class="btn btn-sm btn-outline-primary"
+                                            @onclick="() => ConvertirFacturaB(factura.Id)">
+                                        Pasar a fiscal
+                                    </button>
+                                }
+                                else if (factura.EstadoFiscal == EstadoFiscalFactura.Autorizada)
+                                {
+                                    <span class="badge bg-success">CAE OK</span>
+                                }
+                                else
+                                {
+                                    <button class="btn btn-sm btn-outline-danger"
+                                            @onclick="() => AutorizarArca(factura.Id)">
+                                        Autorizar ARCA
+                                    </button>
+                                }
+                            </td>
                         </tr>
                     }
                 </tbody>
@@ -309,6 +379,8 @@ else
     private DateTime manualFechaVencimiento = DateTime.Today.AddDays(10);
     private decimal manualMonto;
     private string? manualObservaciones;
+
+    private string? mensajeArca;
 
     protected override async Task OnInitializedAsync()
     {
@@ -466,6 +538,83 @@ else
             .Where(x => x.PeriodoAnio == periodoAnio && x.PeriodoMes == periodoMes)
             .OrderBy(x => x.ClienteNombreSnapshot)
             .ToListAsync();
+    }
+
+    private async Task ConvertirFacturaB(int facturaId)
+    {
+        mensajeArca = null;
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+
+        try
+        {
+            var factura = await DbContext.Facturas
+                .FirstAsync(x => x.Id == facturaId);
+
+            if (factura.EstadoCobranza == EstadoCobranzaFactura.Anulada)
+            {
+                mensajeArca = "No se puede fiscalizar una factura anulada.";
+                return;
+            }
+
+            if (factura.EstadoFiscal == EstadoFiscalFactura.Autorizada)
+            {
+                mensajeArca = "La factura ya está autorizada por ARCA.";
+                return;
+            }
+
+            factura.TipoComprobante = TipoComprobante.FacturaB;
+            factura.EstadoFiscal = EstadoFiscalFactura.PendienteAutorizacion;
+
+            factura.FechaEmision = DateTime.Today;
+            factura.FechaVencimiento = DateTime.Today.AddDays(10);
+
+            factura.PuntoVentaId = null;
+            factura.PuntoVentaNumeroSnapshot = null;
+            factura.NumeroComprobante = null;
+            factura.NumeroComprobanteFormateado = null;
+
+            factura.UpdatedAt = DateTime.Now;
+
+            await DbContext.SaveChangesAsync();
+
+            mensajeArca = "Factura convertida a Factura B pendiente de autorización ARCA.";
+
+            await CargarFacturasPeriodo();
+        }
+        catch (Exception ex)
+        {
+            mensajeArca = $"Error al convertir factura: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
+    }
+
+    private void VerFactura(int facturaId)
+    {
+        Navigation.NavigateTo($"/factura-imprimir/{facturaId}");
+    }
+
+    private async Task AutorizarArca(int facturaId)
+    {
+        mensajeArca = "Autorizando factura en ARCA...";
+        mensaje = null;
+        error = null;
+        erroresValidacion.Clear();
+
+        try
+        {
+            mensajeArca = await ArcaFacturaService.AutorizarFacturaAsync(
+                facturaId,
+                AmbienteFiscal.Homologacion);
+
+            await CargarFacturasPeriodo();
+        }
+        catch (Exception ex)
+        {
+            mensajeArca = $"Error al autorizar ARCA: {ex.Message}";
+            Console.WriteLine(ex.ToString());
+        }
     }
 
     private async Task CargarServiciosManual()

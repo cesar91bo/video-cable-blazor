@@ -336,7 +336,7 @@ else
             Tipo = tipoMovimiento,
             Fecha = DateTime.Now,
             Monto = montoMovimiento,
-            Concepto = conceptoMovimiento.Trim(),
+            Concepto = conceptoMovimiento?.Trim() ?? "",
             CreatedAt = DateTime.Now
         });
 

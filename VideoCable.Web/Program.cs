@@ -2,15 +2,23 @@ using VideoCable.Web.Components;
 using Microsoft.EntityFrameworkCore;
 using VideoCable.Infrastructure.Data;
 using VideoCable.Infrastructure.Data.Seed;
+using VideoCable.Infrastructure.Services.Arca;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddScoped<ArcaCertificadoService>();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+builder.Services.AddHttpClient();
+
+builder.Services.AddScoped<ArcaCertificadoService>();
+builder.Services.AddScoped<ArcaAuthService>();
+builder.Services.AddScoped<ArcaFacturaService>();
 
 var app = builder.Build();
 

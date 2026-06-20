@@ -8,6 +8,8 @@
 @using CajaDiariaEntity = VideoCable.Domain.Entities.CajaDiaria
 
 @inject AppDbContext DbContext
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
 
 <PageTitle>Cobranza</PageTitle>
 
@@ -146,9 +148,11 @@ else
                         <th>Fecha</th>
                         <th>Servicio</th>
                         <th>Estado</th>
+                        <th>Comprobante</th>
                         <th class="text-end">Total</th>
                         <th class="text-end">Pagado</th>
                         <th class="text-end">Saldo</th>
+                        <th class="text-end">Factura</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -162,9 +166,32 @@ else
                             <td>@factura.FechaEmision.ToString("dd/MM/yyyy")</td>
                             <td>@factura.ServicioDescripcionSnapshot</td>
                             <td>@factura.EstadoCobranza</td>
+
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(factura.NumeroComprobanteFormateado))
+                                {
+                                    <span>@factura.NumeroComprobanteFormateado</span>
+                                }
+                                else if (factura.TipoComprobante == TipoComprobante.FacturaX)
+                                {
+                                    <span class="badge bg-secondary">Factura X</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-warning text-dark">Pendiente fiscal</span>
+                                }
+                            </td>
+
                             <td class="text-end">@factura.Total.ToString("C0")</td>
                             <td class="text-end">@pagado.ToString("C0")</td>
                             <td class="text-end fw-bold">@saldo.ToString("C0")</td>
+
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        @onclick="() => VerFactura(factura.Id)">
+                                    Ver / imprimir
+                                </button>
+                            </td>
                         </tr>
                     }
                 </tbody>
@@ -209,6 +236,17 @@ else
                 </div>
 
                 <div class="col-md-12">
+                    <div class="form-check mb-3">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               id="chkImprimirComprobante"
+                               @bind="imprimirComprobante" />
+
+                        <label class="form-check-label" for="chkImprimirComprobante">
+                            Imprimir comprobante al registrar el pago
+                        </label>
+                    </div>
+
                     <button class="btn btn-success" @onclick="RegistrarPago" disabled="@(cajaAbierta is null)">
                         Registrar pago
                     </button>
@@ -286,6 +324,7 @@ else if (clienteSeleccionado is not null)
     private MedioPagoTipo medioPago = MedioPagoTipo.Efectivo;
     private string? referenciaPago;
     private string? observacionesPago;
+    private bool imprimirComprobante = true;
 
     private string? mensaje;
     private string? error;
@@ -304,6 +343,11 @@ else if (clienteSeleccionado is not null)
         cajaAbierta = await DbContext.CajasDiarias
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Estado == EstadoCajaDiaria.Abierta);
+    }
+
+    private void VerFactura(int facturaId)
+    {
+        Navigation.NavigateTo($"/factura-imprimir/{facturaId}");
     }
 
     private async Task CargarClientes()
@@ -477,6 +521,8 @@ else if (clienteSeleccionado is not null)
 
             await DbContext.SaveChangesAsync();
 
+            var pagoIdGenerado = pago.Id;
+
             mensaje = "Pago registrado correctamente.";
 
             montoCobrado = 0;
@@ -485,6 +531,11 @@ else if (clienteSeleccionado is not null)
 
             await CargarCajaAbierta();
             await CargarDeudaCliente();
+
+            if (imprimirComprobante)
+            {
+                Navigation.NavigateTo($"/comprobante-pago/{pagoIdGenerado}");
+            }
         }
         catch (Exception ex)
         {
