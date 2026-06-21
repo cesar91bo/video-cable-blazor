@@ -120,8 +120,10 @@
                 </div>
 
                 <div class="col-md-6">
-                    <label class="form-label">Dirección</label>
-                    <input class="form-control" @bind="clienteEditando.Direccion" />
+                    <label class="form-label">Dirección principal / contacto</label>
+                    <input class="form-control"
+                           placeholder="Domicilio principal del titular"
+                           @bind="clienteEditando.Direccion" />
                 </div>
 
                 <div class="col-md-3">
@@ -184,7 +186,7 @@ else
                         <th>Nombre</th>
                         <th>Documento</th>
                         <th>CUIT</th>
-                        <th>Dirección</th>
+                        <th>Dirección principal</th>
                         <th>Teléfono</th>
                         <th>Activo</th>
                         <th class="text-end">Acciones</th>
@@ -296,22 +298,22 @@ else
     }
 
     private async Task OnBusquedaInput(ChangeEventArgs e)
-{
-    busqueda = e.Value?.ToString();
-
-    if (string.IsNullOrWhiteSpace(busqueda) || busqueda.Trim().Length >= 3)
     {
-        await CargarClientes();
-    }
-}
+        busqueda = e.Value?.ToString();
 
-private async Task OnBusquedaKeyDown(KeyboardEventArgs e)
-{
-    if (e.Key == "Enter")
-    {
-        await CargarClientes();
+        if (string.IsNullOrWhiteSpace(busqueda) || busqueda.Trim().Length >= 3)
+        {
+            await CargarClientes();
+        }
     }
-}
+
+    private async Task OnBusquedaKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await CargarClientes();
+        }
+    }
 
     private async Task EditarCliente(int id)
     {
@@ -409,41 +411,45 @@ private async Task OnBusquedaKeyDown(KeyboardEventArgs e)
     }
 
     private async Task ValidarDuplicadosCliente()
-{
-    var existeCodigo = await DbContext.Clientes
-        .AsNoTracking()
-        .AnyAsync(x =>
-            x.Id != clienteEditando.Id &&
-            x.Codigo == clienteEditando.Codigo);
-
-    if (existeCodigo)
-        erroresValidacion.Add("Ya existe otro cliente con el mismo código.");
-
-    if (!string.IsNullOrWhiteSpace(clienteEditando.NumeroDocumento))
     {
-        var existeDocumento = await DbContext.Clientes
+        var existeCodigo = await DbContext.Clientes
             .AsNoTracking()
             .AnyAsync(x =>
                 x.Id != clienteEditando.Id &&
-                x.TipoDocumento == clienteEditando.TipoDocumento &&
-                x.NumeroDocumento == clienteEditando.NumeroDocumento.Trim());
+                x.Codigo == clienteEditando.Codigo);
 
-        if (existeDocumento)
-            erroresValidacion.Add("Ya existe otro cliente con el mismo tipo y número de documento.");
+        if (existeCodigo)
+            erroresValidacion.Add("Ya existe otro cliente con el mismo código.");
+
+        if (!string.IsNullOrWhiteSpace(clienteEditando.NumeroDocumento))
+        {
+            var numeroDocumento = clienteEditando.NumeroDocumento.Trim();
+
+            var existeDocumento = await DbContext.Clientes
+                .AsNoTracking()
+                .AnyAsync(x =>
+                    x.Id != clienteEditando.Id &&
+                    x.TipoDocumento == clienteEditando.TipoDocumento &&
+                    x.NumeroDocumento == numeroDocumento);
+
+            if (existeDocumento)
+                erroresValidacion.Add("Ya existe otro cliente con el mismo tipo y número de documento.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(clienteEditando.Cuit))
+        {
+            var cuit = clienteEditando.Cuit.Trim();
+
+            var existeCuit = await DbContext.Clientes
+                .AsNoTracking()
+                .AnyAsync(x =>
+                    x.Id != clienteEditando.Id &&
+                    x.Cuit == cuit);
+
+            if (existeCuit)
+                erroresValidacion.Add("Ya existe otro cliente con el mismo CUIT.");
+        }
     }
-
-    if (!string.IsNullOrWhiteSpace(clienteEditando.Cuit))
-    {
-        var existeCuit = await DbContext.Clientes
-            .AsNoTracking()
-            .AnyAsync(x =>
-                x.Id != clienteEditando.Id &&
-                x.Cuit == clienteEditando.Cuit.Trim());
-
-        if (existeCuit)
-            erroresValidacion.Add("Ya existe otro cliente con el mismo CUIT.");
-    }
-}
 
     private void ValidarCliente()
     {
@@ -454,9 +460,9 @@ private async Task OnBusquedaKeyDown(KeyboardEventArgs e)
             erroresValidacion.Add("El nombre es obligatorio.");
 
         if (string.IsNullOrWhiteSpace(clienteEditando.Direccion))
-            erroresValidacion.Add("La dirección es obligatoria.");
+            erroresValidacion.Add("La dirección principal/contacto es obligatoria.");
 
-        if (!string.IsNullOrWhiteSpace(clienteEditando.Cuit) && clienteEditando.Cuit.Length != 11)
+        if (!string.IsNullOrWhiteSpace(clienteEditando.Cuit) && clienteEditando.Cuit.Trim().Length != 11)
             erroresValidacion.Add("El CUIT debe tener 11 números, sin guiones.");
 
         if (!string.IsNullOrWhiteSpace(clienteEditando.Email) && !clienteEditando.Email.Contains("@"))

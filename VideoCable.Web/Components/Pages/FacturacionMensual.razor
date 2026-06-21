@@ -120,7 +120,9 @@
                         @foreach (var suscripcion in suscripcionesManual)
                         {
                             <option value="@suscripcion.Id">
-                                @suscripcion.ServicioPlan.Descripcion - @suscripcion.CajaDistribucion.Descripcion
+                                @suscripcion.ServicioPlan.Descripcion - @(string.IsNullOrWhiteSpace(suscripcion.DireccionInstalacion)
+                                    ? suscripcion.CajaDistribucion.Descripcion
+                                    : suscripcion.DireccionInstalacion)
                             </option>
                         }
                     </select>
@@ -446,6 +448,10 @@ else
                     .AddMonths(1)
                     .AddDays(9);
 
+                var direccionFacturacion = !string.IsNullOrWhiteSpace(suscripcion.DireccionInstalacion)
+                    ? suscripcion.DireccionInstalacion
+                    : suscripcion.Cliente.Direccion;
+
                 var factura = new Factura
                 {
                     EmpresaId = empresa.Id,
@@ -470,7 +476,7 @@ else
                     ClienteDocumentoSnapshot = suscripcion.Cliente.NumeroDocumento,
                     ClienteCuitSnapshot = suscripcion.Cliente.Cuit,
                     ClienteCondicionIvaSnapshot = suscripcion.Cliente.RegimenImpositivo.ToString(),
-                    ClienteDireccionSnapshot = suscripcion.Cliente.Direccion,
+                    ClienteDireccionSnapshot = direccionFacturacion,
 
                     ServicioDescripcionSnapshot = suscripcion.ServicioPlan.Descripcion,
                     ServicioTipoSnapshot = suscripcion.ServicioPlan.TipoServicio.ToString(),
@@ -488,7 +494,9 @@ else
                 {
                     SuscripcionId = suscripcion.Id,
                     ServicioPlanId = suscripcion.ServicioPlanId,
-                    Descripcion = $"{suscripcion.ServicioPlan.Descripcion} - período {periodoMes:00}/{periodoAnio}",
+                    Descripcion = string.IsNullOrWhiteSpace(suscripcion.DireccionInstalacion)
+                        ? $"{suscripcion.ServicioPlan.Descripcion} - período {periodoMes:00}/{periodoAnio}"
+                        : $"{suscripcion.ServicioPlan.Descripcion} - {suscripcion.DireccionInstalacion} - período {periodoMes:00}/{periodoAnio}",
                     Cantidad = 1,
                     PrecioUnitario = total,
                     AlicuotaIva = 0,
@@ -824,6 +832,10 @@ else
                 .AsNoTracking()
                 .FirstAsync(x => x.Id == servicioManualId);
 
+            var direccionFacturacion = !string.IsNullOrWhiteSpace(suscripcion.DireccionInstalacion)
+                ? suscripcion.DireccionInstalacion
+                : suscripcion.Cliente.Direccion;
+
             var yaExiste = await DbContext.Facturas
                 .AsNoTracking()
                 .AnyAsync(x =>
@@ -865,7 +877,7 @@ else
                 ClienteDocumentoSnapshot = suscripcion.Cliente.NumeroDocumento,
                 ClienteCuitSnapshot = suscripcion.Cliente.Cuit,
                 ClienteCondicionIvaSnapshot = suscripcion.Cliente.RegimenImpositivo.ToString(),
-                ClienteDireccionSnapshot = suscripcion.Cliente.Direccion,
+                ClienteDireccionSnapshot = direccionFacturacion,
 
                 ServicioDescripcionSnapshot = servicio.Descripcion,
                 ServicioTipoSnapshot = servicio.TipoServicio.ToString(),
@@ -883,7 +895,9 @@ else
             {
                 SuscripcionId = suscripcion.Id,
                 ServicioPlanId = servicio.Id,
-                Descripcion = $"{servicio.Descripcion} - período {manualMes:00}/{manualAnio}",
+                Descripcion = string.IsNullOrWhiteSpace(suscripcion.DireccionInstalacion)
+                    ? $"{servicio.Descripcion} - período {manualMes:00}/{manualAnio}"
+                    : $"{servicio.Descripcion} - {suscripcion.DireccionInstalacion} - período {manualMes:00}/{manualAnio}",
                 Cantidad = 1,
                 PrecioUnitario = manualMonto,
                 AlicuotaIva = 0,

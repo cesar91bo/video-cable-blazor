@@ -122,6 +122,27 @@
                     <InputDate class="form-control" @bind-Value="suscripcionEditando.FechaBaja" />
                 </div>
 
+                <div class="col-md-6">
+                    <label class="form-label">Dirección de instalación</label>
+                    <input class="form-control"
+                           placeholder="Ej: San Martín 123"
+                           @bind="suscripcionEditando.DireccionInstalacion" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Localidad instalación</label>
+                    <input class="form-control"
+                           placeholder="Ej: Pampa del Indio"
+                           @bind="suscripcionEditando.LocalidadInstalacion" />
+                </div>
+
+                <div class="col-md-3">
+                    <label class="form-label">Referencia instalación</label>
+                    <input class="form-control"
+                           placeholder="Ej: Casa al fondo, portón negro"
+                           @bind="suscripcionEditando.ReferenciaInstalacion" />
+                </div>
+
                 <div class="col-md-12">
                     <label class="form-label">Observaciones</label>
                     <input class="form-control" @bind="suscripcionEditando.Observaciones" />
@@ -154,23 +175,42 @@ else
 
         <div class="table-responsive grid-scroll">
             <table class="table table-striped table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th>Cliente</th>
-                        <th>Servicio</th>
-                        <th>Caja</th>
-                        <th>Fecha alta</th>
-                        <th>Estado</th>
-                        <th class="text-end">Precio</th>
-                        <th class="text-end">Acciones</th>
-                    </tr>
-                </thead>
+                <tr>
+                    <th>Cliente</th>
+                    <th>Servicio</th>
+                    <th>Dirección instalación</th>
+                    <th>Caja</th>
+                    <th>Fecha alta</th>
+                    <th>Estado</th>
+                    <th class="text-end">Precio</th>
+                    <th class="text-end">Acciones</th>
+                </tr>
                 <tbody>
                     @foreach (var item in suscripciones)
                     {
                         <tr>
                             <td>@item.Cliente.Codigo - @item.Cliente.Nombre</td>
                             <td>@item.ServicioPlan.Descripcion</td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(item.DireccionInstalacion))
+                                {
+                                    <div>@item.DireccionInstalacion</div>
+
+                                    @if (!string.IsNullOrWhiteSpace(item.LocalidadInstalacion))
+                                    {
+                                        <div class="text-muted small">@item.LocalidadInstalacion</div>
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(item.ReferenciaInstalacion))
+                                    {
+                                        <div class="text-muted small">@item.ReferenciaInstalacion</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <span class="text-muted">Sin dirección</span>
+                                }
+                            </td>
                             <td>@item.CajaDistribucion.Codigo - @item.CajaDistribucion.Descripcion</td>
                             <td>@item.FechaAlta.ToString("dd/MM/yyyy")</td>
                             <td>
@@ -335,6 +375,9 @@ else
             EstadoActual = EstadoSuscripcionTipo.Activo,
             FechaAlta = DateTime.Today,
             PrecioActualSnapshot = 0,
+            DireccionInstalacion = null,
+            LocalidadInstalacion = null,
+            ReferenciaInstalacion = null,
             CreatedAt = DateTime.Now
         };
 
@@ -361,6 +404,9 @@ else
             FechaAlta = suscripcion.FechaAlta,
             FechaBaja = suscripcion.FechaBaja,
             PrecioActualSnapshot = suscripcion.PrecioActualSnapshot,
+            DireccionInstalacion = suscripcion.DireccionInstalacion,
+            LocalidadInstalacion = suscripcion.LocalidadInstalacion,
+            ReferenciaInstalacion = suscripcion.ReferenciaInstalacion,
             Observaciones = suscripcion.Observaciones,
             CreatedAt = suscripcion.CreatedAt,
             CreatedByUserId = suscripcion.CreatedByUserId,
@@ -423,6 +469,9 @@ else
                 suscripcion.FechaAlta = suscripcionEditando.FechaAlta;
                 suscripcion.FechaBaja = suscripcionEditando.FechaBaja;
                 suscripcion.PrecioActualSnapshot = suscripcionEditando.PrecioActualSnapshot;
+                suscripcion.DireccionInstalacion = suscripcionEditando.DireccionInstalacion;
+                suscripcion.LocalidadInstalacion = suscripcionEditando.LocalidadInstalacion;
+                suscripcion.ReferenciaInstalacion = suscripcionEditando.ReferenciaInstalacion;
                 suscripcion.Observaciones = suscripcionEditando.Observaciones;
                 suscripcion.UpdatedAt = DateTime.Now;
 
@@ -480,6 +529,9 @@ else
 
         if (suscripcionEditando.CajaDistribucionId <= 0)
             erroresValidacion.Add("Debe seleccionar una caja de distribución.");
+
+        if (string.IsNullOrWhiteSpace(suscripcionEditando.DireccionInstalacion))
+            erroresValidacion.Add("Debe cargar la dirección de instalación.");
 
         if (suscripcionEditando.PrecioActualSnapshot < 0)
             erroresValidacion.Add("El precio no puede ser negativo.");

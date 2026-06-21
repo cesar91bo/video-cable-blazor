@@ -22,5 +22,11 @@ public class Suscripcion : AuditableEntity
 
     public decimal PrecioActualSnapshot { get; set; }
 
+    public string? DireccionInstalacion { get; set; }
+
+    public string? LocalidadInstalacion { get; set; }
+
+    public string? ReferenciaInstalacion { get; set; }
+
     public string? Observaciones { get; set; }
 }

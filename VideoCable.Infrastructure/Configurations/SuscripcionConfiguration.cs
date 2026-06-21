@@ -31,18 +31,27 @@ public class SuscripcionConfiguration : IEntityTypeConfiguration<Suscripcion>
         builder.Property(x => x.PrecioActualSnapshot)
             .HasColumnType("decimal(18,2)");
 
+        builder.Property(x => x.DireccionInstalacion)
+            .HasMaxLength(250);
+
+        builder.Property(x => x.LocalidadInstalacion)
+            .HasMaxLength(100);
+
+        builder.Property(x => x.ReferenciaInstalacion)
+            .HasMaxLength(500);
+
         builder.Property(x => x.Observaciones)
             .HasMaxLength(1000);
 
         builder.HasIndex(x => x.ClienteId);
         builder.HasIndex(x => x.EstadoActual);
 
-        builder.HasIndex(x => new 
-            { 
-                x.ClienteId, 
-                x.ServicioPlanId, 
-                x.CajaDistribucionId 
-            })
+        builder.HasIndex(x => new
+        {
+            x.ClienteId,
+            x.ServicioPlanId,
+            x.CajaDistribucionId
+        })
             .IsUnique()
             .HasFilter($"[IsDeleted] = 0 AND [EstadoActual] = {(int)EstadoSuscripcionTipo.Activo}");
 
