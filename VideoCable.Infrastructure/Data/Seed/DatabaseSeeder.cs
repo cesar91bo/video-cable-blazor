@@ -10,9 +10,9 @@ public static class DatabaseSeeder
     {
         await context.Database.MigrateAsync();
 
+        // Solo se asegura la empresa base.
+        // No cargamos servicios ni cajas porque esos datos se van a configurar manualmente en el cliente.
         await SeedEmpresaAsync(context);
-        await SeedServiciosAsync(context);
-        await SeedCajasAsync(context);
 
         await context.SaveChangesAsync();
     }
