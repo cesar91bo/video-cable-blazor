@@ -113,6 +113,7 @@ public enum TipoMovimientoCaja
 
 public enum TipoPuntoVenta
 {
+    [Display(Name = "Electrónico")]
     Electronico = 1,
     Manual = 2
 }
@@ -126,6 +127,7 @@ public enum TipoCobroServicio
 public enum EstadoReclamo
 {
     Abierto = 1,
+    [Display(Name = "En Proceso")]
     EnProceso = 2,
     Resuelto = 3,
     Cerrado = 4,
@@ -134,10 +136,15 @@ public enum EstadoReclamo
 
 public enum TipoReclamo
 {
+    [Display(Name = "Sin Señal")]
     SinSenal = 1,
+    [Display(Name = "Internet Lento")]
     InternetLento = 2,
+    [Display(Name = "Corte de Servicio")]
     CorteServicio = 3,
+    [Display(Name = "Facturación")]
     Facturacion = 4,
+    [Display(Name = "Reclamo Técnico")]
     ReclamoTecnico = 5,
     Otro = 99
 }

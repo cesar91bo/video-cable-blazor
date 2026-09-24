@@ -17,6 +17,13 @@
 <body>
     <Routes />
     <ReconnectModal />
+    <script>
+            window.imprimirPagina = function() {
+                setTimeout(function() {
+                    window.print();
+                }, 150);
+            };
+    </script>
     <script src="@Assets["_framework/blazor.web.js"]"></script>
     <script src="js/googleMapsCajas.js"></script>
 </body>

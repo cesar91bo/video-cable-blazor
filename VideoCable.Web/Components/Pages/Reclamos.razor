@@ -8,355 +8,659 @@
 @using VideoCable.Web.Helpers
 
 @inject AppDbContext DbContext
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Reclamos</PageTitle>
+<div class="no-print">
 
-<div class="page-header">
-    <div>
-        <h1>Reclamos</h1>
-        <p class="text-muted mb-0">Registro y seguimiento de reclamos de clientes.</p>
-    </div>
+    <div class="page-header">
+        <div>
+            <h1>Reclamos</h1>
+            <p class="text-muted mb-0">Registro y seguimiento de reclamos de clientes.</p>
+        </div>
 
-    <button class="btn btn-primary" @onclick="NuevoReclamo">
-        Nuevo reclamo
-    </button>
-</div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-secondary"
+                    @onclick="ImprimirListado">
+                Imprimir listado
+            </button>
 
-@if (!string.IsNullOrWhiteSpace(mensaje))
-{
-    <div class="alert alert-success mt-3">
-        @mensaje
-    </div>
-}
-
-@if (!string.IsNullOrWhiteSpace(error))
-{
-    <div class="alert alert-danger mt-3">
-        @error
-    </div>
-}
-
-<div class="card mt-4">
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-md-4">
-                <label class="form-label">Buscar cliente / texto</label>
-                <input class="form-control"
-                       placeholder="Cliente, código, documento, descripción..."
-                       value="@busqueda"
-                       @oninput="OnBusquedaInput" />
-            </div>
-
-            <div class="col-md-2">
-                <label class="form-label">Estado</label>
-                <select class="form-select" @bind="filtroEstado">
-                    <option value="0">Todos</option>
-                    @foreach (var estado in Enum.GetValues<EstadoReclamo>())
-                    {
-                        <option value="@((int)estado)">@estado.GetDisplayName()</option>
-                    }
-                </select>
-            </div>
-
-            <div class="col-md-2">
-                <label class="form-label">Tipo</label>
-                <select class="form-select" @bind="filtroTipo">
-                    <option value="0">Todos</option>
-                    @foreach (var tipo in Enum.GetValues<TipoReclamo>())
-                    {
-                        <option value="@((int)tipo)">@tipo.GetDisplayName()</option>
-                    }
-                </select>
-            </div>
-
-            <div class="col-md-2">
-                <label class="form-label">Prioridad</label>
-                <select class="form-select" @bind="filtroPrioridad">
-                    <option value="0">Todas</option>
-                    @foreach (var prioridad in Enum.GetValues<PrioridadReclamo>())
-                    {
-                        <option value="@((int)prioridad)">@prioridad.GetDisplayName()</option>
-                    }
-                </select>
-            </div>
-
-            <div class="col-md-2 d-flex align-items-end">
-                <button class="btn btn-primary w-100" @onclick="CargarReclamos">
-                    Buscar
-                </button>
-            </div>
+            <button class="btn btn-primary"
+                    @onclick="NuevoReclamo">
+                Nuevo reclamo
+            </button>
         </div>
     </div>
-</div>
 
-@if (editando)
-{
+    @if (!string.IsNullOrWhiteSpace(mensaje))
+    {
+        <div class="alert alert-success mt-3">
+            @mensaje
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="alert alert-danger mt-3">
+            @error
+        </div>
+    }
+
     <div class="card mt-4">
-        <div class="card-header">
-            @(reclamoEditando.Id == 0 ? "Nuevo reclamo" : "Editar reclamo")
-        </div>
-
         <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <label class="form-label">Buscar cliente</label>
-                    <input class="form-control"
-                           placeholder="Nombre, código, documento o CUIT..."
-                           value="@busquedaCliente"
-                           @oninput="BuscarClientes" />
 
-                    <select class="form-select mt-2" value="@reclamoEditando.ClienteId" @onchange="OnClienteChanged">
-                        <option value="0">Seleccionar cliente...</option>
-                        @foreach (var cliente in clientesFiltrados)
-                        {
-                            <option value="@cliente.Id">@cliente.Codigo - @cliente.Nombre</option>
-                        }
-                    </select>
+            <div class="row g-3">
+
+                <div class="col-md-4">
+                    <label class="form-label">Buscar cliente / texto</label>
+
+                    <input class="form-control"
+                           placeholder="Cliente, código, documento, descripción..."
+                           value="@busqueda"
+                           @oninput="OnBusquedaInput" />
                 </div>
 
-                <div class="col-md-4">
-                    <label class="form-label">Suscripción</label>
-                    <select class="form-select" value="@reclamoEditando.SuscripcionId" @onchange="OnSuscripcionChanged">
-                        <option value="">Sin suscripción específica</option>
-                        @foreach (var suscripcion in suscripcionesCliente)
+                <div class="col-md-2">
+                    <label class="form-label">Estado</label>
+
+                    <select class="form-select" @bind="filtroEstado">
+                        <option value="0">Todos</option>
+
+                        @foreach (var estado in Enum.GetValues<EstadoReclamo>())
                         {
-                            <option value="@suscripcion.Id">
-                                @suscripcion.ServicioPlan.Descripcion - @suscripcion.CajaDistribucion.Descripcion
+                            <option value="@((int)estado)">
+                                @estado.GetDisplayName()
                             </option>
                         }
                     </select>
                 </div>
 
-                <div class="col-md-4">
-                    <label class="form-label">Caja</label>
-                    <select class="form-select" @bind="reclamoEditando.CajaDistribucionId">
-                        <option value="">Sin caja específica</option>
-                        @foreach (var caja in cajas)
-                        {
-                            <option value="@caja.Id">@caja.Codigo - @caja.Descripcion</option>
-                        }
-                    </select>
-                </div>
-
-                <div class="col-md-3">
-                    <label class="form-label">Fecha</label>
-                    <InputDate class="form-control" @bind-Value="reclamoEditando.FechaReclamo" />
-                </div>
-
                 <div class="col-md-3">
                     <label class="form-label">Tipo</label>
-                    <select class="form-select" @bind="reclamoEditando.Tipo">
+
+                    <select class="form-select" @bind="filtroTipo">
+                        <option value="0">Todos</option>
+
                         @foreach (var tipo in Enum.GetValues<TipoReclamo>())
                         {
-                            <option value="@tipo">@tipo.GetDisplayName()</option>
+                            <option value="@((int)tipo)">
+                                @tipo.GetDisplayName()
+                            </option>
                         }
                     </select>
                 </div>
 
                 <div class="col-md-3">
                     <label class="form-label">Prioridad</label>
-                    <select class="form-select" @bind="reclamoEditando.Prioridad">
+
+                    <select class="form-select" @bind="filtroPrioridad">
+                        <option value="0">Todas</option>
+
                         @foreach (var prioridad in Enum.GetValues<PrioridadReclamo>())
                         {
-                            <option value="@prioridad">@prioridad.GetDisplayName()</option>
+                            <option value="@((int)prioridad)">
+                                @prioridad.GetDisplayName()
+                            </option>
                         }
                     </select>
+                </div>
+
+            </div>
+
+            <div class="row g-3 mt-1">
+
+                <div class="col-md-3">
+                    <label class="form-label">Desde</label>
+
+                    <InputDate class="form-control"
+                               @bind-Value="fechaDesde" />
                 </div>
 
                 <div class="col-md-3">
-                    <label class="form-label">Estado</label>
-                    <select class="form-select" @bind="reclamoEditando.Estado">
-                        @foreach (var estado in Enum.GetValues<EstadoReclamo>())
+                    <label class="form-label">Hasta</label>
+
+                    <InputDate class="form-control"
+                               @bind-Value="fechaHasta" />
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-primary w-100"
+                            @onclick="CargarReclamos">
+                        Buscar
+                    </button>
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end">
+                    <button class="btn btn-outline-secondary w-100"
+                            @onclick="RestablecerFiltros">
+                        Últimos 30 días
+                    </button>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+    @if (editando)
+    {
+        <div class="card mt-4">
+            <div class="card-header">
+                @(reclamoEditando.Id == 0 ? "Nuevo reclamo" : "Editar reclamo")
+            </div>
+
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Buscar cliente</label>
+                        <input class="form-control"
+                               placeholder="Nombre, código, documento o CUIT..."
+                               value="@busquedaCliente"
+                               @oninput="BuscarClientes" />
+
+                        <select class="form-select mt-2" value="@reclamoEditando.ClienteId" @onchange="OnClienteChanged">
+                            <option value="0">Seleccionar cliente...</option>
+                            @foreach (var cliente in clientesFiltrados)
+                            {
+                                <option value="@cliente.Id">@cliente.Codigo - @cliente.Nombre</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Suscripción</label>
+                        <select class="form-select" value="@reclamoEditando.SuscripcionId" @onchange="OnSuscripcionChanged">
+                            <option value="">Sin suscripción específica</option>
+                            @foreach (var suscripcion in suscripcionesCliente)
+                            {
+                                <option value="@suscripcion.Id">
+                                    @suscripcion.ServicioPlan.Descripcion - @suscripcion.CajaDistribucion.Descripcion
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label">Caja</label>
+                        <select class="form-select" @bind="reclamoEditando.CajaDistribucionId">
+                            <option value="">Sin caja específica</option>
+                            @foreach (var caja in cajas)
+                            {
+                                <option value="@caja.Id">@caja.Codigo - @caja.Descripcion</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Fecha</label>
+                        <InputDate class="form-control" @bind-Value="reclamoEditando.FechaReclamo" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Tipo</label>
+                        <select class="form-select" @bind="reclamoEditando.Tipo">
+                            @foreach (var tipo in Enum.GetValues<TipoReclamo>())
+                            {
+                                <option value="@tipo">@tipo.GetDisplayName()</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Prioridad</label>
+                        <select class="form-select" @bind="reclamoEditando.Prioridad">
+                            @foreach (var prioridad in Enum.GetValues<PrioridadReclamo>())
+                            {
+                                <option value="@prioridad">@prioridad.GetDisplayName()</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label">Estado</label>
+                        <select class="form-select" @bind="reclamoEditando.Estado">
+                            @foreach (var estado in Enum.GetValues<EstadoReclamo>())
+                            {
+                                <option value="@estado">@estado.GetDisplayName()</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-12">
+                        <label class="form-label">Descripción del reclamo</label>
+                        <textarea class="form-control"
+                                  rows="3"
+                                  placeholder="Ej: cliente informa corte de servicio, internet lento, sin señal..."
+                                  @bind="reclamoEditando.Descripcion"></textarea>
+                    </div>
+
+                    <div class="col-md-12">
+                        <label class="form-label">Observaciones internas</label>
+                        <textarea class="form-control"
+                                  rows="2"
+                                  placeholder="Notas internas del operador o técnico..."
+                                  @bind="reclamoEditando.ObservacionesInternas"></textarea>
+                    </div>
+
+                    <div class="col-md-12">
+                        <label class="form-label">Resolución</label>
+                        <textarea class="form-control"
+                                  rows="2"
+                                  placeholder="Qué se hizo para resolver el reclamo..."
+                                  @bind="reclamoEditando.Resolucion"></textarea>
+                    </div>
+                </div>
+
+                <div class="mt-4 d-flex gap-2">
+                    <button class="btn btn-success" @onclick="GuardarReclamo">
+                        Guardar
+                    </button>
+
+                    <button class="btn btn-outline-secondary" @onclick="CancelarEdicion">
+                        Cancelar
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (cargando)
+    {
+        <p class="mt-4">Cargando reclamos...</p>
+    }
+    else
+    {
+        <div class="row mt-4 g-3">
+            <div class="col-md-3">
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Abiertos</div>
+                    <div class="dashboard-value text-danger">@cantidadAbiertos</div>
+                    <div class="dashboard-subtitle">Pendientes de atención</div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="dashboard-card">
+                    <div class="dashboard-label">En proceso</div>
+                    <div class="dashboard-value text-warning">@cantidadEnProceso</div>
+                    <div class="dashboard-subtitle">En seguimiento</div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Resueltos</div>
+                    <div class="dashboard-value text-success">@cantidadResueltos</div>
+                    <div class="dashboard-subtitle">Solucionados</div>
+                </div>
+            </div>
+
+            <div class="col-md-3">
+                <div class="dashboard-card">
+                    <div class="dashboard-label">Total listado</div>
+                    <div class="dashboard-value">@reclamos.Count</div>
+                    <div class="dashboard-subtitle">Según filtros actuales</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                Reclamos registrados
+            </div>
+
+            <div class="table-responsive grid-scroll">
+                <table class="table table-striped table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Cliente</th>
+                            <th>Tipo</th>
+                            <th>Prioridad</th>
+                            <th>Estado</th>
+                            <th>Descripción</th>
+                            <th>Caja</th>
+                            <th class="text-end">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var reclamo in reclamos)
                         {
-                            <option value="@estado">@estado.GetDisplayName()</option>
+                            <tr class="@GetClaseFila(reclamo)">
+                                <td>@reclamo.FechaReclamo.ToString("dd/MM/yyyy HH:mm")</td>
+
+                                <td>
+                                    <div class="fw-semibold">@reclamo.Cliente.Nombre</div>
+                                    <div class="text-muted small">Código @reclamo.Cliente.Codigo</div>
+                                </td>
+
+                                <td>@reclamo.Tipo.GetDisplayName()</td>
+
+                                <td>
+                                    <span class="@GetClasePrioridad(reclamo.Prioridad)">
+                                        @reclamo.Prioridad.GetDisplayName()
+                                    </span>
+                                </td>
+
+                                <td>
+                                    <span class="@GetClaseEstado(reclamo.Estado)">
+                                        @reclamo.Estado.GetDisplayName()
+                                    </span>
+                                </td>
+
+                                <td>
+                                    <div class="descripcion-corta">
+                                        @reclamo.Descripcion
+                                    </div>
+                                </td>
+
+                                <td>
+                                    @if (reclamo.CajaDistribucion is not null)
+                                    {
+                                        <span>@reclamo.CajaDistribucion.Codigo - @reclamo.CajaDistribucion.Descripcion</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">Sin caja</span>
+                                    }
+                                </td>
+
+                                <td class="text-end">
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-outline-dark"
+                                                @onclick="() => ImprimirReclamo(reclamo.Id)">
+                                            Imprimir
+                                        </button>
+
+                                        <button class="btn btn-sm btn-outline-primary" @onclick="() => EditarReclamo(reclamo.Id)">
+                                            Editar
+                                        </button>
+
+                                        @if (reclamo.Estado == EstadoReclamo.Abierto)
+                                        {
+                                            <button class="btn btn-sm btn-outline-warning" @onclick="() => CambiarEstado(reclamo.Id, EstadoReclamo.EnProceso)">
+                                                En proceso
+                                            </button>
+                                        }
+
+                                        @if (reclamo.Estado != EstadoReclamo.Resuelto && reclamo.Estado != EstadoReclamo.Cerrado)
+                                        {
+                                            <button class="btn btn-sm btn-outline-success" @onclick="() => CambiarEstado(reclamo.Id, EstadoReclamo.Resuelto)">
+                                                Resolver
+                                            </button>
+                                        }
+
+                                        @if (reclamo.Estado == EstadoReclamo.Resuelto)
+                                        {
+                                            <button class="btn btn-sm btn-outline-secondary" @onclick="() => CambiarEstado(reclamo.Id, EstadoReclamo.Cerrado)">
+                                                Cerrar
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
                         }
-                    </select>
+
+                        @if (!reclamos.Any())
+                        {
+                            <tr>
+                                <td colspan="8" class="text-muted">
+                                    No hay reclamos para los filtros seleccionados.
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    @if (imprimiendoListado)
+    {
+        <div class="print-only">
+
+            <div class="print-header">
+                <h2>Video Cable - Reclamos técnicos</h2>
+
+                <div>
+                    Fecha de impresión: @DateTime.Now.ToString("dd/MM/yyyy HH:mm")
                 </div>
 
-                <div class="col-md-12">
-                    <label class="form-label">Descripción del reclamo</label>
-                    <textarea class="form-control"
-                              rows="3"
-                              placeholder="Ej: cliente informa corte de servicio, internet lento, sin señal..."
-                              @bind="reclamoEditando.Descripcion"></textarea>
-                </div>
-
-                <div class="col-md-12">
-                    <label class="form-label">Observaciones internas</label>
-                    <textarea class="form-control"
-                              rows="2"
-                              placeholder="Notas internas del operador o técnico..."
-                              @bind="reclamoEditando.ObservacionesInternas"></textarea>
-                </div>
-
-                <div class="col-md-12">
-                    <label class="form-label">Resolución</label>
-                    <textarea class="form-control"
-                              rows="2"
-                              placeholder="Qué se hizo para resolver el reclamo..."
-                              @bind="reclamoEditando.Resolucion"></textarea>
+                <div>
+                    Total de reclamos: @reclamos.Count
                 </div>
             </div>
 
-            <div class="mt-4 d-flex gap-2">
-                <button class="btn btn-success" @onclick="GuardarReclamo">
-                    Guardar
-                </button>
-
-                <button class="btn btn-outline-secondary" @onclick="CancelarEdicion">
-                    Cancelar
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
-@if (cargando)
-{
-    <p class="mt-4">Cargando reclamos...</p>
-}
-else
-{
-    <div class="row mt-4 g-3">
-        <div class="col-md-3">
-            <div class="dashboard-card">
-                <div class="dashboard-label">Abiertos</div>
-                <div class="dashboard-value text-danger">@cantidadAbiertos</div>
-                <div class="dashboard-subtitle">Pendientes de atención</div>
-            </div>
-        </div>
-
-        <div class="col-md-3">
-            <div class="dashboard-card">
-                <div class="dashboard-label">En proceso</div>
-                <div class="dashboard-value text-warning">@cantidadEnProceso</div>
-                <div class="dashboard-subtitle">En seguimiento</div>
-            </div>
-        </div>
-
-        <div class="col-md-3">
-            <div class="dashboard-card">
-                <div class="dashboard-label">Resueltos</div>
-                <div class="dashboard-value text-success">@cantidadResueltos</div>
-                <div class="dashboard-subtitle">Solucionados</div>
-            </div>
-        </div>
-
-        <div class="col-md-3">
-            <div class="dashboard-card">
-                <div class="dashboard-label">Total listado</div>
-                <div class="dashboard-value">@reclamos.Count</div>
-                <div class="dashboard-subtitle">Según filtros actuales</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card mt-4">
-        <div class="card-header">
-            Reclamos registrados
-        </div>
-
-        <div class="table-responsive grid-scroll">
-            <table class="table table-striped table-hover mb-0">
+            <table class="table table-bordered table-sm mt-3">
                 <thead>
                     <tr>
-                        <th>Fecha</th>
-                        <th>Cliente</th>
-                        <th>Tipo</th>
+                        <th>N°</th>
                         <th>Prioridad</th>
-                        <th>Estado</th>
-                        <th>Descripción</th>
+                        <th>Cliente</th>
+                        <th>Dirección</th>
+                        <th>Teléfono</th>
+                        <th>Servicio</th>
+                        <th>Tipo</th>
+                        <th>Reclamo</th>
                         <th>Caja</th>
-                        <th class="text-end">Acciones</th>
                     </tr>
                 </thead>
+
                 <tbody>
                     @foreach (var reclamo in reclamos)
                     {
-                        <tr class="@GetClaseFila(reclamo)">
-                            <td>@reclamo.FechaReclamo.ToString("dd/MM/yyyy HH:mm")</td>
+                        <tr>
+                            <td>@reclamo.Id</td>
 
                             <td>
-                                <div class="fw-semibold">@reclamo.Cliente.Nombre</div>
-                                <div class="text-muted small">Código @reclamo.Cliente.Codigo</div>
-                            </td>
-
-                            <td>@reclamo.Tipo.GetDisplayName()</td>
-
-                            <td>
-                                <span class="@GetClasePrioridad(reclamo.Prioridad)">
-                                    @reclamo.Prioridad.GetDisplayName()
-                                </span>
+                                @reclamo.Prioridad.GetDisplayName()
                             </td>
 
                             <td>
-                                <span class="@GetClaseEstado(reclamo.Estado)">
-                                    @reclamo.Estado.GetDisplayName()
-                                </span>
-                            </td>
-
-                            <td>
-                                <div class="descripcion-corta">
-                                    @reclamo.Descripcion
+                                @reclamo.Cliente.Nombre
+                                <div class="small">
+                                    Cód. @reclamo.Cliente.Codigo
                                 </div>
+                            </td>
+
+                            <td>
+                                @(reclamo.Suscripcion is not null &&
+                                  !string.IsNullOrWhiteSpace(reclamo.Suscripcion.DireccionInstalacion)
+                                    ? reclamo.Suscripcion.DireccionInstalacion
+                                    : reclamo.Cliente.Direccion)
+                            </td>
+
+                            <td>
+                                @reclamo.Cliente.Telefono
+                            </td>
+
+                            <td>
+                                @(reclamo.Suscripcion?.ServicioPlan?.Descripcion ?? "-")
+                            </td>
+
+                            <td>
+                                @reclamo.Tipo.GetDisplayName()
+                            </td>
+
+                            <td>
+                                @reclamo.Descripcion
                             </td>
 
                             <td>
                                 @if (reclamo.CajaDistribucion is not null)
                                 {
-                                    <span>@reclamo.CajaDistribucion.Codigo - @reclamo.CajaDistribucion.Descripcion</span>
+                                    <span>
+                                        @reclamo.CajaDistribucion.Codigo
+                                    </span>
                                 }
                                 else
                                 {
-                                    <span class="text-muted">Sin caja</span>
+                                    <span>-</span>
                                 }
-                            </td>
-
-                            <td class="text-end">
-                                <div class="btn-group">
-                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => EditarReclamo(reclamo.Id)">
-                                        Editar
-                                    </button>
-
-                                    @if (reclamo.Estado == EstadoReclamo.Abierto)
-                                    {
-                                        <button class="btn btn-sm btn-outline-warning" @onclick="() => CambiarEstado(reclamo.Id, EstadoReclamo.EnProceso)">
-                                            En proceso
-                                        </button>
-                                    }
-
-                                    @if (reclamo.Estado != EstadoReclamo.Resuelto && reclamo.Estado != EstadoReclamo.Cerrado)
-                                    {
-                                        <button class="btn btn-sm btn-outline-success" @onclick="() => CambiarEstado(reclamo.Id, EstadoReclamo.Resuelto)">
-                                            Resolver
-                                        </button>
-                                    }
-
-                                    @if (reclamo.Estado == EstadoReclamo.Resuelto)
-                                    {
-                                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => CambiarEstado(reclamo.Id, EstadoReclamo.Cerrado)">
-                                            Cerrar
-                                        </button>
-                                    }
-                                </div>
-                            </td>
-                        </tr>
-                    }
-
-                    @if (!reclamos.Any())
-                    {
-                        <tr>
-                            <td colspan="8" class="text-muted">
-                                No hay reclamos para los filtros seleccionados.
                             </td>
                         </tr>
                     }
                 </tbody>
             </table>
-        </div>
-    </div>
-}
 
+            <div class="mt-4">
+                <strong>Observaciones del técnico:</strong>
+            </div>
+
+            <div class="linea-tecnico"></div>
+            <div class="linea-tecnico"></div>
+            <div class="linea-tecnico"></div>
+
+        </div>
+    }
+
+    @if (reclamoParaImprimir is not null)
+    {
+        <div class="print-only">
+
+            <div class="print-header">
+                <h2>Orden de reclamo técnico</h2>
+
+                <div>
+                    <strong>Reclamo N°:</strong>
+                    @reclamoParaImprimir.Id
+                </div>
+
+                <div>
+                    <strong>Fecha:</strong>
+                    @reclamoParaImprimir.FechaReclamo.ToString("dd/MM/yyyy HH:mm")
+                </div>
+            </div>
+
+            <hr />
+
+            <div class="row mt-3">
+
+                <div class="col-6">
+                    <strong>Cliente</strong>
+                    <div>@reclamoParaImprimir.Cliente.Nombre</div>
+                    <div>Código: @reclamoParaImprimir.Cliente.Codigo</div>
+                </div>
+
+                <div class="col-6">
+                    <strong>Teléfono</strong>
+                    <div>@reclamoParaImprimir.Cliente.Telefono</div>
+                </div>
+
+            </div>
+
+            <div class="row mt-4">
+
+                <div class="col-8">
+                    <strong>Dirección de instalación</strong>
+
+                    <div>
+                        @(reclamoParaImprimir.Suscripcion is not null &&
+                          !string.IsNullOrWhiteSpace(reclamoParaImprimir.Suscripcion.DireccionInstalacion)
+                            ? reclamoParaImprimir.Suscripcion.DireccionInstalacion
+                            : reclamoParaImprimir.Cliente.Direccion)
+                    </div>
+                </div>
+
+                <div class="col-4">
+                    <strong>Caja</strong>
+
+                    <div>
+                        @if (reclamoParaImprimir.CajaDistribucion is not null)
+                        {
+                            <span>
+                                @reclamoParaImprimir.CajaDistribucion.Codigo -
+                                @reclamoParaImprimir.CajaDistribucion.Descripcion
+                            </span>
+                        }
+                        else
+                        {
+                            <span>Sin caja especificada</span>
+                        }
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="row mt-4">
+
+                <div class="col-4">
+                    <strong>Servicio</strong>
+
+                    <div>
+                        @(reclamoParaImprimir.Suscripcion?.ServicioPlan?.Descripcion ?? "Sin servicio específico")
+                    </div>
+                </div>
+
+                <div class="col-4">
+                    <strong>Tipo</strong>
+
+                    <div>
+                        @reclamoParaImprimir.Tipo.GetDisplayName()
+                    </div>
+                </div>
+
+                <div class="col-4">
+                    <strong>Prioridad</strong>
+
+                    <div>
+                        @reclamoParaImprimir.Prioridad.GetDisplayName()
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="mt-4">
+                <strong>Descripción del reclamo</strong>
+
+                <div class="reclamo-box">
+                    @reclamoParaImprimir.Descripcion
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(reclamoParaImprimir.ObservacionesInternas))
+            {
+                <div class="mt-4">
+                    <strong>Observaciones</strong>
+
+                    <div class="reclamo-box">
+                        @reclamoParaImprimir.ObservacionesInternas
+                    </div>
+                </div>
+            }
+
+            <div class="mt-5">
+                <strong>Trabajo realizado por el técnico</strong>
+
+                <div class="linea-tecnico"></div>
+                <div class="linea-tecnico"></div>
+                <div class="linea-tecnico"></div>
+                <div class="linea-tecnico"></div>
+            </div>
+
+            <div class="row mt-5">
+                <div class="col-6">
+                    Técnico: ______________________________
+                </div>
+
+                <div class="col-6">
+                    Fecha / Hora: __________________________
+                </div>
+            </div>
+
+            <div class="row mt-5">
+                <div class="col-6">
+                    Firma técnico: _________________________
+                </div>
+
+                <div class="col-6">
+                    Firma cliente: _________________________
+                </div>
+            </div>
+
+        </div>
+    }
+</div>
 @code {
     private bool cargando = true;
     private bool editando;
@@ -369,6 +673,12 @@ else
     private int filtroEstado;
     private int filtroTipo;
     private int filtroPrioridad;
+
+    private DateTime fechaDesde = DateTime.Today.AddDays(-30);
+    private DateTime fechaHasta = DateTime.Today;
+
+    private bool imprimiendoListado;
+    private Reclamo? reclamoParaImprimir;
 
     private Reclamo reclamoEditando = new();
 
@@ -403,6 +713,13 @@ else
 
         try
         {
+            if (fechaDesde.Date > fechaHasta.Date)
+            {
+                error = "La fecha desde no puede ser posterior a la fecha hasta.";
+                cargando = false;
+                return;
+            }
+
             var query = DbContext.Reclamos
                 .AsNoTracking()
                 .Include(x => x.Cliente)
@@ -410,6 +727,13 @@ else
                 .Include(x => x.Suscripcion)
                     .ThenInclude(x => x!.ServicioPlan)
                 .AsQueryable();
+
+            var desde = fechaDesde.Date;
+            var hasta = fechaHasta.Date.AddDays(1);
+
+            query = query.Where(x =>
+                x.FechaReclamo >= desde &&
+                x.FechaReclamo < hasta);
 
             if (filtroEstado > 0)
                 query = query.Where(x => (int)x.Estado == filtroEstado);
@@ -427,8 +751,10 @@ else
                 query = query.Where(x =>
                     x.Cliente.Nombre.Contains(texto) ||
                     x.Cliente.Codigo.ToString().Contains(texto) ||
-                    (x.Cliente.NumeroDocumento != null && x.Cliente.NumeroDocumento.Contains(texto)) ||
-                    (x.Cliente.Cuit != null && x.Cliente.Cuit.Contains(texto)) ||
+                    (x.Cliente.NumeroDocumento != null &&
+                     x.Cliente.NumeroDocumento.Contains(texto)) ||
+                    (x.Cliente.Cuit != null &&
+                     x.Cliente.Cuit.Contains(texto)) ||
                     x.Descripcion.Contains(texto));
             }
 
@@ -439,11 +765,16 @@ else
                 .Take(300)
                 .ToListAsync();
 
-            cantidadAbiertos = reclamos.Count(x => x.Estado == EstadoReclamo.Abierto);
-            cantidadEnProceso = reclamos.Count(x => x.Estado == EstadoReclamo.EnProceso);
-            cantidadResueltos = reclamos.Count(x =>
-                x.Estado == EstadoReclamo.Resuelto ||
-                x.Estado == EstadoReclamo.Cerrado);
+            cantidadAbiertos =
+                reclamos.Count(x => x.Estado == EstadoReclamo.Abierto);
+
+            cantidadEnProceso =
+                reclamos.Count(x => x.Estado == EstadoReclamo.EnProceso);
+
+            cantidadResueltos =
+                reclamos.Count(x =>
+                    x.Estado == EstadoReclamo.Resuelto ||
+                    x.Estado == EstadoReclamo.Cerrado);
         }
         catch (Exception ex)
         {
@@ -452,6 +783,19 @@ else
         }
 
         cargando = false;
+    }
+
+    private async Task RestablecerFiltros()
+    {
+        busqueda = null;
+        filtroEstado = 0;
+        filtroTipo = 0;
+        filtroPrioridad = 0;
+
+        fechaDesde = DateTime.Today.AddDays(-30);
+        fechaHasta = DateTime.Today;
+
+        await CargarReclamos();
     }
 
     private async Task OnBusquedaInput(ChangeEventArgs e)
@@ -765,4 +1109,123 @@ else
             _ => "badge bg-secondary"
         };
     }
+
+    private async Task ImprimirListado()
+    {
+        error = null;
+
+        if (!reclamos.Any())
+        {
+            error = "No hay reclamos para imprimir.";
+            return;
+        }
+
+        var cantidadDias =
+            (fechaHasta.Date - fechaDesde.Date).TotalDays + 1;
+
+        if (cantidadDias > 31)
+        {
+            error = "Para imprimir el listado seleccione un período máximo de 31 días.";
+            return;
+        }
+
+        if (reclamos.Count > 100)
+        {
+            error = "Hay más de 100 reclamos en el listado. Aplique más filtros antes de imprimir.";
+            return;
+        }
+
+        reclamoParaImprimir = null;
+        imprimiendoListado = true;
+
+        await InvokeAsync(StateHasChanged);
+
+        await JSRuntime.InvokeVoidAsync("imprimirPagina");
+    }
+
+    private async Task ImprimirReclamo(int reclamoId)
+    {
+        error = null;
+
+        imprimiendoListado = false;
+
+        reclamoParaImprimir = await DbContext.Reclamos
+            .AsNoTracking()
+            .Include(x => x.Cliente)
+            .Include(x => x.CajaDistribucion)
+            .Include(x => x.Suscripcion)
+                .ThenInclude(x => x!.ServicioPlan)
+            .FirstOrDefaultAsync(x => x.Id == reclamoId);
+
+        if (reclamoParaImprimir is null)
+        {
+            error = "No se encontró el reclamo.";
+            return;
+        }
+
+        await InvokeAsync(StateHasChanged);
+
+        await JSRuntime.InvokeVoidAsync("imprimirPagina");
+    }
 }
+
+<style>
+    .print-only {
+        display: none;
+    }
+
+    .reclamo-box {
+        border: 1px solid #999;
+        padding: 12px;
+        min-height: 70px;
+        margin-top: 8px;
+    }
+
+    .linea-tecnico {
+        border-bottom: 1px solid #777;
+        height: 32px;
+    }
+
+    .print-header h2 {
+        margin-bottom: 10px;
+    }
+
+    @@media print {
+
+        @@page {
+            size: A4 landscape;
+            margin: 10mm;
+        }
+
+        body * {
+            visibility: hidden !important;
+        }
+
+        .print-only,
+        .print-only * {
+            visibility: visible !important;
+        }
+
+        .print-only {
+            display: block !important;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            background: white;
+        }
+
+            .print-only table {
+                width: 100%;
+                font-size: 10px;
+                border-collapse: collapse;
+            }
+
+            .print-only th,
+            .print-only td {
+                padding: 4px !important;
+                vertical-align: top;
+                border: 1px solid #777 !important;
+            }
+    }
+</style>
