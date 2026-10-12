@@ -31,7 +31,8 @@
 <div class="print-only reporte-print-header">
     <h2>Reporte de deudas</h2>
     <div>Clientes con facturas pendientes o parciales</div>
-    <div>Filtro: @GetNombreFiltroAntiguedad()</div>
+    <div>Estado: @GetNombreFiltroAntiguedad()</div>
+    <div>Servicio: @GetNombreFiltroServicio()</div>
     <div>Fecha: @DateTime.Today.ToString("dd/MM/yyyy")</div>
 </div>
 
@@ -43,7 +44,7 @@
 <div class="card mt-4 no-print">
     <div class="card-body">
         <div class="row g-3">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <label class="form-label">Buscar cliente</label>
                 <input class="form-control"
                        placeholder="Nombre, código, documento o CUIT..."
@@ -51,9 +52,9 @@
                        @oninput="OnBusquedaInput" />
             </div>
 
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">Orden</label>
-                <select class="form-select" @bind="ordenReporte">
+                <select class="form-select" @bind="ordenReporte" @bind:after="CargarReporte">
                     <option value="deuda_desc">Mayor deuda primero</option>
                     <option value="nombre">Nombre</option>
                     <option value="cantidad_desc">Más facturas primero</option>
@@ -61,13 +62,25 @@
                 </select>
             </div>
 
-            <div class="col-md-3">
-                <label class="form-label">Antigüedad</label>
-                <select class="form-select" @bind="filtroAntiguedad">
+            <div class="col-md-2">
+                <label class="form-label">Estado deuda</label>
+                <select class="form-select" @bind="filtroAntiguedad" @bind:after="CargarReporte">
                     <option value="todos">Todos</option>
-                    <option value="normal">Normal: 1 mes</option>
-                    <option value="atencion">Atención: 2 meses</option>
-                    <option value="riesgo">Riesgo: 3 o más meses</option>
+                    <option value="normal">Normal</option>
+                    <option value="atencion">Atención</option>
+                    <option value="riesgo">Riesgo / Suspender</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Servicio</label>
+                <select class="form-select" @bind="filtroServicio" @bind:after="CargarReporte">
+                    <option value="">Todos los servicios</option>
+                    <option value="@TipoServicio.Video">Cable</option>
+                    <option value="@TipoServicio.Fibra">Fibra</option>
+                    <option value="@TipoServicio.Internet">Internet</option>
+                    <option value="@TipoServicio.InternetTv">Internet + TV</option>
+                    <option value="@TipoServicio.Otro">Otro</option>
                 </select>
             </div>
 
@@ -76,6 +89,10 @@
                     Buscar
                 </button>
             </div>
+        </div>
+        <div class="text-muted small mt-3">
+            Cable: atención a los 2 meses, riesgo desde los 3.
+            Internet, fibra o combo: atención al mes, riesgo desde los 2.
         </div>
     </div>
 </div>
@@ -149,14 +166,17 @@ else
 
                             <td>@item.PrimerPeriodo</td>
 
-                            <td class="text-center">@item.MesesAdeudados mes/es</td>
+                            <td class="text-center">
+                                <div>@item.MesesAdeudados mes/es</div>
+                                <div class="text-muted small">@item.DetalleServicios</div>
+                            </td>
 
                             <td class="text-center">
-                                @if (item.MesesAdeudados >= 3)
+                                @if (item.EstadoDeuda == EstadoDeudaCliente.Riesgo)
                                 {
                                     <span class="badge bg-danger">Riesgo / Suspender</span>
                                 }
-                                else if (item.MesesAdeudados == 2)
+                                else if (item.EstadoDeuda == EstadoDeudaCliente.Atencion)
                                 {
                                     <span class="badge bg-warning text-dark">Atención</span>
                                 }
@@ -197,6 +217,7 @@ else
     private string? busqueda;
     private string ordenReporte = "deuda_desc";
     private string filtroAntiguedad = "todos";
+    private TipoServicio? filtroServicio;
 
     private List<DeudaClienteItem> items = new();
 
@@ -229,6 +250,8 @@ else
             var facturas = await DbContext.Facturas
                 .AsNoTracking()
                 .Include(x => x.Cliente)
+                .Include(x => x.Suscripcion)
+                    .ThenInclude(x => x.ServicioPlan)
                 .Include(x => x.PagoAplicaciones)
                 .Where(x =>
                     x.EstadoCobranza == EstadoCobranzaFactura.Pendiente ||
@@ -243,6 +266,16 @@ else
                     Saldo = x.Total - x.PagoAplicaciones.Sum(p => p.MontoAplicado)
                 })
                 .Where(x => x.Saldo > 0);
+
+            // Filtrar las facturas antes de calcular deuda, períodos y estado.
+            // Así, al elegir cable no se suma la deuda de internet del mismo cliente.
+            if (filtroServicio.HasValue)
+            {
+                var tipoSeleccionado = filtroServicio.Value;
+                query = query.Where(x => ObtenerTipoServicio(
+                    x.Factura.ServicioTipoSnapshot,
+                    x.Factura.Suscripcion.ServicioPlan.TipoServicio) == tipoSeleccionado);
+            }
 
             if (!string.IsNullOrWhiteSpace(busqueda))
             {
@@ -276,6 +309,34 @@ else
                         .Distinct()
                         .Count();
 
+                    // Cada tipo de servicio cuenta sus propios períodos pendientes.
+                    // Dos facturas del mismo tipo y mes cuentan como un solo mes.
+                    var deudasPorServicio = g
+                        .GroupBy(x => ObtenerTipoServicio(x.Factura.ServicioTipoSnapshot,
+                            x.Factura.Suscripcion.ServicioPlan.TipoServicio))
+                        .Select(servicio =>
+                        {
+                            var meses = servicio
+                                .Select(x => new { x.Factura.PeriodoAnio, x.Factura.PeriodoMes })
+                                .Distinct()
+                                .Count();
+
+                            return new
+                            {
+                                Tipo = servicio.Key,
+                                Meses = meses,
+                                Estado = CalcularEstadoDeuda(servicio.Key, meses)
+                            };
+                        })
+                        .ToList();
+
+                    // El cliente muestra el estado más grave de sus servicios adeudados.
+                    var estadoDeuda = deudasPorServicio.Any(x => x.Estado == EstadoDeudaCliente.Riesgo)
+                        ? EstadoDeudaCliente.Riesgo
+                        : deudasPorServicio.Any(x => x.Estado == EstadoDeudaCliente.Atencion)
+                            ? EstadoDeudaCliente.Atencion
+                            : EstadoDeudaCliente.Normal;
+
                     return new DeudaClienteItem
                     {
                         ClienteId = cliente.Id,
@@ -287,6 +348,10 @@ else
                             : cliente.NumeroDocumento,
                         CantidadFacturas = g.Count(),
                         MesesAdeudados = mesesAdeudados,
+                        EstadoDeuda = estadoDeuda,
+                        DetalleServicios = string.Join(" · ", deudasPorServicio
+                            .OrderBy(x => x.Tipo)
+                            .Select(x => $"{GetNombreServicio(x.Tipo)}: {x.Meses} mes/es")),
                         Deuda = g.Sum(x => x.Saldo),
                         PrimerPeriodo = $"{primera.Factura.PeriodoMes:00}/{primera.Factura.PeriodoAnio}",
                         UltimoPeriodo = $"{ultima.Factura.PeriodoMes:00}/{ultima.Factura.PeriodoAnio}",
@@ -298,9 +363,9 @@ else
 
             items = filtroAntiguedad switch
             {
-                "normal" => items.Where(x => x.MesesAdeudados == 1).ToList(),
-                "atencion" => items.Where(x => x.MesesAdeudados == 2).ToList(),
-                "riesgo" => items.Where(x => x.MesesAdeudados >= 3).ToList(),
+                "normal" => items.Where(x => x.EstadoDeuda == EstadoDeudaCliente.Normal).ToList(),
+                "atencion" => items.Where(x => x.EstadoDeuda == EstadoDeudaCliente.Atencion).ToList(),
+                "riesgo" => items.Where(x => x.EstadoDeuda == EstadoDeudaCliente.Riesgo).ToList(),
                 _ => items
             };
 
@@ -325,12 +390,58 @@ else
         cargando = false;
     }
 
+    private enum EstadoDeudaCliente
+    {
+        Normal,
+        Atencion,
+        Riesgo
+    }
+
+    private static TipoServicio ObtenerTipoServicio(string? snapshot, TipoServicio tipoActual)
+    {
+        // Usar el tipo facturado cuando el snapshot contiene el enum o su valor.
+        if (Enum.TryParse<TipoServicio>(snapshot, true, out var tipo)
+            && Enum.IsDefined(typeof(TipoServicio), tipo))
+            return tipo;
+
+        if (string.Equals(snapshot?.Trim(), "Internet + TV", StringComparison.OrdinalIgnoreCase))
+            return TipoServicio.InternetTv;
+
+        return tipoActual;
+    }
+
+    private static EstadoDeudaCliente CalcularEstadoDeuda(TipoServicio tipo, int meses)
+    {
+        var mesesParaRiesgo = tipo switch
+        {
+            TipoServicio.Fibra or TipoServicio.Internet or TipoServicio.InternetTv => 2,
+            _ => 3
+        };
+
+        if (meses >= mesesParaRiesgo)
+            return EstadoDeudaCliente.Riesgo;
+
+        if (meses == mesesParaRiesgo - 1)
+            return EstadoDeudaCliente.Atencion;
+
+        return EstadoDeudaCliente.Normal;
+    }
+
+    private static string GetNombreServicio(TipoServicio tipo) => tipo switch
+    {
+        TipoServicio.Video => "Cable",
+        TipoServicio.Fibra => "Fibra",
+        TipoServicio.Internet => "Internet",
+        TipoServicio.InternetTv => "Internet + TV",
+        _ => "Otro"
+    };
+
     private string GetClaseFila(DeudaClienteItem item)
     {
-        if (item.MesesAdeudados >= 3)
+        if (item.EstadoDeuda == EstadoDeudaCliente.Riesgo)
             return "table-danger";
 
-        if (item.MesesAdeudados == 2)
+        if (item.EstadoDeuda == EstadoDeudaCliente.Atencion)
             return "table-warning";
 
         return "";
@@ -350,13 +461,20 @@ else
     }
 
 
+    private string GetNombreFiltroServicio()
+    {
+        return filtroServicio.HasValue
+            ? GetNombreServicio(filtroServicio.Value)
+            : "Todos los servicios";
+    }
+
     private string GetNombreFiltroAntiguedad()
     {
         return filtroAntiguedad switch
         {
-            "normal" => "Normal: 1 mes",
-            "atencion" => "Atención: 2 meses",
-            "riesgo" => "Riesgo: 3 o más meses",
+            "normal" => "Normal",
+            "atencion" => "Atención",
+            "riesgo" => "Riesgo / Suspender",
             _ => "Todos"
         };
     }
@@ -370,6 +488,8 @@ else
         public string? Documento { get; set; }
         public int CantidadFacturas { get; set; }
         public int MesesAdeudados { get; set; }
+        public EstadoDeudaCliente EstadoDeuda { get; set; }
+        public string DetalleServicios { get; set; } = string.Empty;
         public decimal Deuda { get; set; }
         public string PrimerPeriodo { get; set; } = string.Empty;
         public string UltimoPeriodo { get; set; } = string.Empty;
