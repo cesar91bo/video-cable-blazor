@@ -245,6 +245,7 @@ else
 
         var query = DbContext.Clientes
             .AsNoTracking()
+            .Where(x => !x.IsDeleted)
             .AsQueryable();
 
         if (!string.IsNullOrWhiteSpace(busqueda))

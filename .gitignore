@@ -36,6 +36,7 @@ appsettings.Development.json
 **/App_Data/
 
 # Database files
+.local-migration/
 *.mdf
 *.ldf
 *.bak
