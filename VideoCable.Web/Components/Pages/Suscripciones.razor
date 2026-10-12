@@ -98,6 +98,12 @@
                 </div>
 
                 <div class="col-md-3">
+                    <label class="form-label">Número de precinto</label>
+                    <InputText class="form-control" @bind-Value="suscripcionEditando.NumeroPrecinto" maxlength="30" inputmode="numeric" />
+                    <div class="form-text">Opcional. Identifica la conexión del cliente dentro de la caja.</div>
+                </div>
+
+                <div class="col-md-3">
                     <label class="form-label">Fecha alta</label>
                     <InputDate class="form-control" @bind-Value="suscripcionEditando.FechaAlta" />
                 </div>
@@ -180,6 +186,7 @@ else
                     <th>Servicio</th>
                     <th>Dirección instalación</th>
                     <th>Caja</th>
+                    <th>Precinto</th>
                     <th>Fecha alta</th>
                     <th>Estado</th>
                     <th class="text-end">Precio</th>
@@ -212,6 +219,7 @@ else
                                 }
                             </td>
                             <td>@item.CajaDistribucion.Codigo - @item.CajaDistribucion.Descripcion</td>
+                            <td>@(item.NumeroPrecinto ?? "Sin registrar")</td>
                             <td>@item.FechaAlta.ToString("dd/MM/yyyy")</td>
                             <td>
                                 @if (item.EstadoActual == EstadoSuscripcionTipo.Activo)
@@ -400,6 +408,7 @@ else
             ClienteId = suscripcion.ClienteId,
             ServicioPlanId = suscripcion.ServicioPlanId,
             CajaDistribucionId = suscripcion.CajaDistribucionId,
+            NumeroPrecinto = suscripcion.NumeroPrecinto,
             EstadoActual = suscripcion.EstadoActual,
             FechaAlta = suscripcion.FechaAlta,
             FechaBaja = suscripcion.FechaBaja,
@@ -448,13 +457,15 @@ else
         error = null;
         erroresValidacion.Clear();
 
-        await ValidarSuscripcion();
-
-        if (erroresValidacion.Any())
-            return;
-
         try
         {
+            // La validación y el guardado reservan el precinto en una misma operación.
+            await using var transaccion = await DbContext.Database.BeginTransactionAsync(
+                System.Data.IsolationLevel.Serializable);
+            await ValidarSuscripcion();
+            if (erroresValidacion.Any())
+                return;
+
             if (suscripcionEditando.Id > 0)
             {
                 var suscripcion = await DbContext.Suscripciones
@@ -465,6 +476,7 @@ else
                 suscripcion.ClienteId = suscripcionEditando.ClienteId;
                 suscripcion.ServicioPlanId = suscripcionEditando.ServicioPlanId;
                 suscripcion.CajaDistribucionId = suscripcionEditando.CajaDistribucionId;
+                suscripcion.NumeroPrecinto = suscripcionEditando.NumeroPrecinto;
                 suscripcion.EstadoActual = suscripcionEditando.EstadoActual;
                 suscripcion.FechaAlta = suscripcionEditando.FechaAlta;
                 suscripcion.FechaBaja = suscripcionEditando.FechaBaja;
@@ -501,6 +513,7 @@ else
             }
 
             await DbContext.SaveChangesAsync();
+            await transaccion.CommitAsync();
 
             editando = false;
             mensaje = "Suscripción guardada correctamente.";
@@ -521,6 +534,28 @@ else
 
     private async Task ValidarSuscripcion()
     {
+        suscripcionEditando.NumeroPrecinto = string.IsNullOrWhiteSpace(suscripcionEditando.NumeroPrecinto)
+            ? null
+            : suscripcionEditando.NumeroPrecinto.Trim();
+
+        var precinto = suscripcionEditando.NumeroPrecinto;
+        if (precinto is not null)
+        {
+            if (precinto.Length > 30 || precinto.Any(c => c < '0' || c > '9'))
+                erroresValidacion.Add("El precinto debe contener únicamente números, con un máximo de 30 dígitos.");
+            else if (suscripcionEditando.EstadoActual != EstadoSuscripcionTipo.Baja)
+            {
+                var ocupado = await DbContext.Suscripciones.AsNoTracking().AnyAsync(x =>
+                    !x.IsDeleted && x.Id != suscripcionEditando.Id &&
+                    x.CajaDistribucionId == suscripcionEditando.CajaDistribucionId &&
+                    x.NumeroPrecinto == precinto &&
+                    x.ClienteId != suscripcionEditando.ClienteId &&
+                    x.EstadoActual != EstadoSuscripcionTipo.Baja);
+                if (ocupado)
+                    erroresValidacion.Add("Ese precinto ya pertenece a otro cliente en esta caja. Revise el número o la caja seleccionada.");
+            }
+        }
+
         if (suscripcionEditando.ClienteId <= 0)
             erroresValidacion.Add("Debe seleccionar un cliente.");
 

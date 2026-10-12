@@ -14,6 +14,8 @@ public class Suscripcion : AuditableEntity
     public int CajaDistribucionId { get; set; }
     public CajaDistribucion CajaDistribucion { get; set; } = default!;
 
+    public string? NumeroPrecinto { get; set; }
+
     public EstadoSuscripcionTipo EstadoActual { get; set; } = EstadoSuscripcionTipo.Activo;
 
     public DateTime FechaAlta { get; set; }

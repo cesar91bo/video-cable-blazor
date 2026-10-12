@@ -253,6 +253,7 @@ else
                     <tr>
                         <th>Cliente</th>
                         <th>Servicio</th>
+                        <th>Precinto</th>
                         <th>Dirección</th>
                         <th>Teléfono</th>
                         <th>Estado</th>
@@ -268,6 +269,7 @@ else
                                 <div class="text-muted small">Código @cliente.ClienteCodigo</div>
                             </td>
                             <td>@cliente.Servicio</td>
+                            <td>@(cliente.NumeroPrecinto ?? "Sin registrar")</td>
                             <td>@cliente.Direccion</td>
                             <td>@cliente.Telefono</td>
                             <td>
@@ -291,7 +293,7 @@ else
                     @if (!clientesCajaSeleccionada.Any())
                     {
                         <tr>
-                            <td colspan="6" class="text-muted">
+                            <td colspan="7" class="text-muted">
                                 No hay clientes asociados a esta caja.
                             </td>
                         </tr>
@@ -647,9 +649,12 @@ else
                 ClienteId = x.ClienteId,
                 ClienteCodigo = x.Cliente.Codigo,
                 ClienteNombre = x.Cliente.Nombre,
-                Direccion = x.Cliente.Direccion,
+                Direccion = string.IsNullOrWhiteSpace(x.DireccionInstalacion)
+                    ? x.Cliente.Direccion
+                    : x.DireccionInstalacion,
                 Telefono = x.Cliente.Telefono,
                 Servicio = x.ServicioPlan.Descripcion,
+                NumeroPrecinto = x.NumeroPrecinto,
                 Estado = x.EstadoActual,
                 Deuda = deudaPorSuscripcion.TryGetValue(x.Id, out var deuda)
                     ? deuda
@@ -696,6 +701,7 @@ else
         public string? Direccion { get; set; }
         public string? Telefono { get; set; }
         public string Servicio { get; set; } = string.Empty;
+        public string? NumeroPrecinto { get; set; }
         public EstadoSuscripcionTipo Estado { get; set; }
         public decimal Deuda { get; set; }
     }

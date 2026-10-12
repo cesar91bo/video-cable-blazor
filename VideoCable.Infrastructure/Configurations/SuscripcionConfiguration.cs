@@ -34,6 +34,11 @@ public class SuscripcionConfiguration : IEntityTypeConfiguration<Suscripcion>
         builder.Property(x => x.DireccionInstalacion)
             .HasMaxLength(250);
 
+        builder.Property(x => x.NumeroPrecinto)
+            .HasMaxLength(30);
+
+        builder.HasIndex(x => new { x.CajaDistribucionId, x.NumeroPrecinto });
+
         builder.Property(x => x.LocalidadInstalacion)
             .HasMaxLength(100);
 

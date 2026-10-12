@@ -1323,6 +1323,10 @@ namespace VideoCable.Infrastructure.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
+                    b.Property<string>("NumeroPrecinto")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
                     b.Property<string>("Observaciones")
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
@@ -1351,13 +1355,13 @@ namespace VideoCable.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CajaDistribucionId");
-
                     b.HasIndex("ClienteId");
 
                     b.HasIndex("EstadoActual");
 
                     b.HasIndex("ServicioPlanId");
+
+                    b.HasIndex("CajaDistribucionId", "NumeroPrecinto");
 
                     b.HasIndex("ClienteId", "ServicioPlanId", "CajaDistribucionId")
                         .IsUnique()
