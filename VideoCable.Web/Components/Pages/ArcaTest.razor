@@ -7,6 +7,7 @@
 @inject ArcaCertificadoService ArcaCertificadoService
 @inject ArcaAuthService ArcaAuthService
 @inject ArcaFacturaService ArcaFacturaService
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Prueba ARCA</PageTitle>
 
@@ -105,8 +106,17 @@
 
         resultado = "Autorizando factura real en homologación...";
 
-        resultado = await ArcaFacturaService.AutorizarFacturaAsync(
-            facturaIdPrueba,
-            AmbienteFiscal.Homologacion);
+        try
+        {
+            resultado = await ArcaFacturaService.AutorizarFacturaAsync(
+                facturaIdPrueba, AmbienteFiscal.Homologacion);
+        }
+        catch (AvisoLimiteFacturacionException ex)
+        {
+            resultado = ex.Message;
+            if (await JSRuntime.InvokeAsync<bool>("confirm", ex.Message + "\n¿Continuar con la emisión ARCA?"))
+                resultado = await ArcaFacturaService.AutorizarFacturaAsync(
+                    facturaIdPrueba, AmbienteFiscal.Homologacion, continuarConAvisoLimite: true);
+        }
     }
 }

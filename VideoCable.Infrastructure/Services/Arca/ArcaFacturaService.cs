@@ -231,7 +231,8 @@ public class ArcaFacturaService
 
     public async Task<string> AutorizarFacturaAsync(
     int facturaId,
-    AmbienteFiscal ambiente)
+    AmbienteFiscal ambiente,
+    bool continuarConAvisoLimite = false)
     {
         const int condicionIvaConsumidorFinal = 5;
 
@@ -249,6 +250,14 @@ public class ArcaFacturaService
 
         if (factura.EstadoFiscal == EstadoFiscalFactura.Autorizada)
             return "La factura ya está autorizada por ARCA.";
+
+        if (factura.IsDeleted || factura.EstadoFiscal == EstadoFiscalFactura.Anulada ||
+            factura.EstadoCobranza == EstadoCobranzaFactura.Anulada)
+            return "No se puede autorizar una factura anulada o eliminada.";
+
+        var avisoLimite = await ObtenerAvisoLimiteMensualAsync(factura, ambiente);
+        if (avisoLimite is not null && !continuarConAvisoLimite)
+            throw new AvisoLimiteFacturacionException(avisoLimite);
 
         var puntoVenta = await _dbContext.PuntosVenta
             .AsNoTracking()
@@ -435,7 +444,8 @@ public class ArcaFacturaService
         await _dbContext.SaveChangesAsync();
 
         return
-            "Factura autorizada correctamente en ARCA HOMOLOGACIÓN." + Environment.NewLine +
+            (avisoLimite is not null ? avisoLimite + Environment.NewLine + Environment.NewLine : "") +
+            $"Factura autorizada correctamente en ARCA {ambiente}." + Environment.NewLine +
             $"Factura Id: {factura.Id}" + Environment.NewLine +
             $"Comprobante: {factura.NumeroComprobanteFormateado}" + Environment.NewLine +
             $"Tipo: {factura.TipoComprobante}" + Environment.NewLine +
@@ -582,6 +592,36 @@ public class ArcaFacturaService
             .ToList();
 
         return string.Join(Environment.NewLine, observaciones);
+    }
+
+    private async Task<string?> ObtenerAvisoLimiteMensualAsync(Factura factura, AmbienteFiscal ambiente)
+    {
+        if (factura.TipoComprobante is not (TipoComprobante.FacturaA or TipoComprobante.FacturaB or TipoComprobante.FacturaC))
+            return null;
+
+        // Leer el valor guardado para no usar una configuración antigua del contexto.
+        var limite = await _dbContext.Empresas.AsNoTracking()
+            .Where(x => x.Id == factura.EmpresaId)
+            .Select(x => x.LimiteFacturacionMensualArca).SingleAsync();
+        if (limite is null or <= 0) return null;
+
+        var inicio = new DateTime(factura.FechaEmision.Year, factura.FechaEmision.Month, 1);
+        var fin = inicio.AddMonths(1);
+        // El CAE aceptado es la fuente del acumulado, incluso si el registro se elimina
+        // o se marca anulado localmente después de haber sido autorizado.
+        var acumulado = await _dbContext.FacturasElectronicas.AsNoTracking()
+            .Where(x => x.Resultado == "A" && x.CAE != "" &&
+                x.Factura.EmpresaId == factura.EmpresaId && x.FacturaId != factura.Id &&
+                x.Factura.FechaEmision >= inicio && x.Factura.FechaEmision < fin &&
+                (x.Factura.TipoComprobante == TipoComprobante.FacturaA ||
+                 x.Factura.TipoComprobante == TipoComprobante.FacturaB ||
+                 x.Factura.TipoComprobante == TipoComprobante.FacturaC) &&
+                _dbContext.PuntosVenta.Any(p => p.Id == x.Factura.PuntoVentaId && p.Ambiente == ambiente))
+            .SumAsync(x => (decimal?)x.Factura.Total) ?? 0m;
+        var estado = LimiteFacturacionMensual.Evaluar(limite, acumulado, factura.Total);
+        return estado?.DebeAvisar == true
+            ? $"Facturación ARCA de {inicio:MM/yyyy} · Ambiente: {ambiente}." + Environment.NewLine + estado.Mensaje
+            : null;
     }
 
     private static string FormatoDecimal(decimal valor)

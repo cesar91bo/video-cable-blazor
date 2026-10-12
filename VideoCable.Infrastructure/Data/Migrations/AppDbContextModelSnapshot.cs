@@ -454,6 +454,9 @@ namespace VideoCable.Infrastructure.Data.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
 
+                    b.Property<decimal?>("LimiteFacturacionMensualArca")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("Localidad")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");

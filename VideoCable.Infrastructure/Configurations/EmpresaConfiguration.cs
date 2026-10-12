@@ -47,5 +47,8 @@ public class EmpresaConfiguration : IEntityTypeConfiguration<Empresa>
 
         builder.Property(x => x.RowVersion)
             .IsRowVersion();
+
+        builder.Property(x => x.LimiteFacturacionMensualArca)
+            .HasColumnType("decimal(18,2)");
     }
 }

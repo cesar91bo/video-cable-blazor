@@ -1,0 +1,244 @@
+@page "/reportes"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+@using VideoCable.Web.Services
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Reportes</PageTitle>
+
+<div class="page-header no-print">
+    <div>
+        <h1>Reportes</h1>
+        <p class="text-muted mb-0">Ventas y cobros por período, cliente, servicio y medio de pago.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="reporte-deudas">Reporte de deudas</a>
+        <button class="btn btn-outline-primary" @onclick="Imprimir" disabled="@(cargando || error is not null || filas.Count == 0 || filtrosModificados)">Imprimir reporte</button>
+    </div>
+</div>
+
+<div class="card mt-4 no-print">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">Reporte</label>
+                <select class="form-select" @bind="tipo" @bind:after="CambiarTipo" disabled="@cargando">
+                    <option value="cobrado">Cobrado</option>
+                    <option value="facturado">Facturado</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Desde</label>
+                <InputDate class="form-control" @bind-Value="desde" disabled="@cargando" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Hasta (inclusive)</label>
+                <InputDate class="form-control" @bind-Value="hasta" disabled="@cargando" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Agrupar por</label>
+                <select class="form-select" @bind="agrupacion" @bind:after="Reagrupar" disabled="@cargando">
+                    <option value="dia">Día</option>
+                    <option value="semana">Semana (lunes a domingo)</option>
+                    <option value="mes">Mes</option>
+                    <option value="cliente">Cliente</option>
+                    <option value="servicio">Servicio</option>
+                    @if (tipo == "cobrado") { <option value="medio">Medio de pago</option> }
+                </select>
+            </div>
+            <div class="col-md-9">
+                <label class="form-label">Cliente</label>
+                <input class="form-control" @bind="cliente" placeholder="Nombre o código; vacío para todos" disabled="@cargando" />
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-primary w-100" @onclick="Cargar" disabled="@cargando">Consultar</button>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+            <button class="btn btn-sm btn-outline-secondary" @onclick='() => Periodo("hoy")' disabled="@cargando">Hoy</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick='() => Periodo("ayer")' disabled="@cargando">Ayer</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick='() => Periodo("semana")' disabled="@cargando">Esta semana</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick='() => Periodo("mes")' disabled="@cargando">Este mes</button>
+            <button class="btn btn-sm btn-outline-secondary" @onclick='() => Periodo("mes-anterior")' disabled="@cargando">Mes anterior</button>
+        </div>
+    </div>
+</div>
+
+@if (error is not null) { <div class="alert alert-danger mt-3 no-print">@error</div> }
+@if (cargando)
+{
+    <p class="mt-4">Cargando reporte...</p>
+}
+else if (error is null)
+{
+    @if (filtrosModificados)
+    {
+        <div class="alert alert-info mt-3 no-print">Los filtros cambiaron. Presione Consultar para actualizar el reporte.</div>
+    }
+    <section class="reporte-ventas mt-4">
+        <h2>@(tipoCargado == "cobrado" ? "Reporte de cobros" : "Reporte de ventas facturadas")</h2>
+        <p>Del @desdeCargado.ToString("dd/MM/yyyy") al @hastaCargado.ToString("dd/MM/yyyy") · Cliente: @(string.IsNullOrWhiteSpace(clienteCargado) ? "Todos" : clienteCargado) · Agrupado por @NombreAgrupacion</p>
+        <div class="row g-3 mb-3">
+            <div class="col-sm-4"><div class="dashboard-card"><div class="dashboard-label">Total @(tipoCargado == "cobrado" ? "cobrado" : "facturado")</div><div class="dashboard-value">@total.ToString("C2")</div></div></div>
+            <div class="col-sm-4"><div class="dashboard-card"><div class="dashboard-label">@(tipoCargado == "cobrado" ? "Pagos" : "Comprobantes")</div><div class="dashboard-value">@operaciones</div></div></div>
+            <div class="col-sm-4"><div class="dashboard-card"><div class="dashboard-label">Clientes</div><div class="dashboard-value">@cantidadClientes</div></div></div>
+        </div>
+        <p class="text-muted small">@(tipoCargado == "cobrado" ? "Por fecha del pago. Excluye pagos anulados o eliminados. Los importes por servicio corresponden a la aplicación del pago a sus facturas." : "Por fecha de emisión. Excluye comprobantes anulados, rechazados o eliminados. Las notas de crédito se restan; incluye comprobantes pendientes de autorización.")</p>
+        @if (agrupacion == "semana") { <p class="text-muted small">Las semanas se muestran de lunes a domingo; solo se suman movimientos dentro del rango consultado.</p> }
+        @if (agrupacion is "servicio" or "medio") { <p class="text-muted small">Una operación puede aparecer en varios grupos. El total cuenta cada operación una sola vez.</p> }
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered align-middle">
+                <thead><tr><th>@NombreAgrupacion</th><th class="text-end">@(tipoCargado == "cobrado" ? "Pagos" : "Comprobantes")</th><th class="text-end">Importe</th></tr></thead>
+                <tbody>
+                    @foreach (var fila in filas)
+                    {
+                        <tr><td>@fila.Etiqueta</td><td class="text-end">@fila.Operaciones</td><td class="text-end">@fila.Importe.ToString("C2")</td></tr>
+                    }
+                    @if (filas.Count == 0) { <tr><td colspan="3" class="text-muted">No hay movimientos para los filtros seleccionados.</td></tr> }
+                </tbody>
+                <tfoot><tr class="fw-bold"><td>Total</td><td class="text-end">@operaciones</td><td class="text-end">@total.ToString("C2")</td></tr></tfoot>
+            </table>
+        </div>
+        <div class="text-muted small">Emitido: @emitido.ToString("dd/MM/yyyy HH:mm")</div>
+    </section>
+}
+
+@code {
+    private string tipo = "cobrado", tipoCargado = "cobrado", agrupacion = "dia";
+    private DateTime desde = DateTime.Today, hasta = DateTime.Today;
+    private DateTime desdeCargado, hastaCargado, emitido;
+    private string cliente = "", clienteCargado = "";
+    private bool cargando;
+    private string? error;
+    private List<MovimientoReporte> movimientos = new(), servicios = new(), medios = new();
+    private List<FilaReporte> filas = new();
+    private decimal total;
+    private int operaciones, cantidadClientes;
+    private bool filtrosModificados => tipo != tipoCargado || desde.Date != desdeCargado || hasta.Date != hastaCargado || cliente.Trim() != clienteCargado;
+    private string NombreAgrupacion => agrupacion switch { "dia" => "Día", "semana" => "Semana", "mes" => "Mes", "cliente" => "Cliente", "medio" => "Medio de pago", _ => "Servicio" };
+
+    protected override Task OnInitializedAsync() => Cargar();
+
+    private async Task CambiarTipo()
+    {
+        if (tipo == "facturado" && agrupacion == "medio") agrupacion = "dia";
+        await Cargar();
+    }
+
+    private async Task Periodo(string periodo)
+    {
+        var hoy = DateTime.Today;
+        (desde, hasta) = periodo switch
+        {
+            "ayer" => (hoy.AddDays(-1), hoy.AddDays(-1)),
+            "semana" => (ResumenReporte.InicioSemana(hoy), hoy),
+            "mes" => (new DateTime(hoy.Year, hoy.Month, 1), hoy),
+            "mes-anterior" => (new DateTime(hoy.Year, hoy.Month, 1).AddMonths(-1), new DateTime(hoy.Year, hoy.Month, 1).AddDays(-1)),
+            _ => (hoy, hoy)
+        };
+        await Cargar();
+    }
+
+    private async Task Cargar()
+    {
+        if (cargando) return;
+        error = null;
+        if (desde.Date > hasta.Date || hasta.Date == DateTime.MaxValue.Date)
+        {
+            error = "Seleccione un rango válido: Desde no puede ser posterior a Hasta.";
+            return;
+        }
+        cargando = true;
+        var inicio = desde.Date;
+        var fin = hasta.Date.AddDays(1);
+        var texto = cliente.Trim();
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var nuevos = new List<MovimientoReporte>();
+            var porServicio = new List<MovimientoReporte>();
+            var porMedio = new List<MovimientoReporte>();
+            if (tipo == "facturado")
+            {
+                var query = db.Facturas.AsNoTracking().Where(x => !x.IsDeleted &&
+                    x.FechaEmision >= inicio && x.FechaEmision < fin &&
+                    x.EstadoCobranza != EstadoCobranzaFactura.Anulada &&
+                    x.EstadoFiscal != EstadoFiscalFactura.Anulada && x.EstadoFiscal != EstadoFiscalFactura.Rechazada);
+                if (texto.Length > 0)
+                    query = query.Where(x => x.ClienteNombreSnapshot.Contains(texto) || x.Cliente.Nombre.Contains(texto) || x.Cliente.Codigo.ToString().Contains(texto));
+                var facturas = await query.Select(x => new { x.Id, x.FechaEmision, x.ClienteId, x.Cliente.Codigo,
+                    Nombre = x.ClienteNombreSnapshot == "" ? x.Cliente.Nombre : x.ClienteNombreSnapshot,
+                    Servicio = x.ServicioDescripcionSnapshot == "" ? x.Suscripcion.ServicioPlan.Descripcion : x.ServicioDescripcionSnapshot,
+                    x.TipoComprobante, x.Total }).ToListAsync();
+                nuevos = facturas.Select(x => new MovimientoReporte(x.Id, x.FechaEmision, x.ClienteId,
+                    $"{x.Codigo} - {x.Nombre}", x.Servicio,
+                    x.TipoComprobante is TipoComprobante.NotaCreditoA or TipoComprobante.NotaCreditoB ? -Math.Abs(x.Total) : x.Total)).ToList();
+                porServicio = nuevos;
+            }
+            else
+            {
+                var query = db.Pagos.AsNoTracking().Where(x => !x.IsDeleted && x.Estado == EstadoPago.Registrado && x.Fecha >= inicio && x.Fecha < fin);
+                if (texto.Length > 0)
+                    query = query.Where(x => x.Cliente.Nombre.Contains(texto) || x.Cliente.Codigo.ToString().Contains(texto));
+                var pagos = await query.Select(x => new { x.Id, x.Fecha, x.ClienteId, x.Cliente.Codigo, x.Cliente.Nombre, x.Total,
+                    Detalles = x.Detalles.Select(d => new { d.MedioPago, d.Monto }).ToList(),
+                    Aplicaciones = x.Aplicaciones.Select(a => new { a.MontoAplicado,
+                        Servicio = a.Factura.ServicioDescripcionSnapshot == "" ? a.Factura.Suscripcion.ServicioPlan.Descripcion : a.Factura.ServicioDescripcionSnapshot }).ToList()
+                }).ToListAsync();
+                foreach (var pago in pagos)
+                {
+                    var movimiento = new MovimientoReporte(pago.Id, pago.Fecha, pago.ClienteId, $"{pago.Codigo} - {pago.Nombre}", "", pago.Total);
+                    nuevos.Add(movimiento);
+                    porMedio.AddRange(ResumenReporte.Desglosar(movimiento,
+                        pago.Detalles.Select(d => (d.MedioPago.ToString(), d.Monto)), "Sin medio registrado / diferencia"));
+                    porServicio.AddRange(ResumenReporte.Desglosar(movimiento,
+                        pago.Aplicaciones.Select(a => (a.Servicio, a.MontoAplicado)), "Sin servicio asignado / diferencia"));
+                }
+            }
+            movimientos = nuevos; servicios = porServicio; medios = porMedio;
+            tipoCargado = tipo; desdeCargado = inicio; hastaCargado = hasta.Date; clienteCargado = texto;
+            emitido = DateTime.Now;
+            total = movimientos.Sum(x => x.Importe);
+            operaciones = movimientos.Select(x => x.Id).Distinct().Count();
+            cantidadClientes = movimientos.Select(x => x.ClienteId).Distinct().Count();
+            Reagrupar();
+        }
+        catch (Exception ex)
+        {
+            error = "No se pudo cargar el reporte. Intente consultar nuevamente.";
+            Console.WriteLine(ex);
+        }
+        finally { cargando = false; }
+    }
+
+    private void Reagrupar() => filas = ResumenReporte.Agrupar(
+        agrupacion == "servicio" ? servicios : agrupacion == "medio" ? medios : movimientos, agrupacion);
+
+    private async Task Imprimir()
+    {
+        if (!cargando && error is null && !filtrosModificados && filas.Count > 0)
+            await JSRuntime.InvokeVoidAsync("window.print");
+    }
+}
+
+<style>
+    @@media print {
+        @@page { size: A4; margin: 12mm; }
+        .sidebar, .top-row, .no-print, #blazor-error-ui { display: none !important; }
+        .page, main { display: block !important; width: 100% !important; margin: 0 !important; }
+        .content { padding: 0 !important; }
+        .reporte-ventas { margin-top: 0 !important; color: #000; }
+        .reporte-ventas .table-responsive { overflow: visible !important; }
+        .reporte-ventas table { font-size: 10pt; }
+        .reporte-ventas thead { display: table-header-group; }
+        .reporte-ventas tfoot { display: table-row-group; }
+        .reporte-ventas tr, .reporte-ventas .dashboard-card { break-inside: avoid; }
+        .reporte-ventas .dashboard-card { box-shadow: none; border: 1px solid #ccc; padding: 8px; }
+        .reporte-ventas .dashboard-value { font-size: 18pt; }
+        .reporte-ventas .row { display: flex; }
+        .reporte-ventas .col-sm-4 { width: 33.333%; }
+    }
+</style>

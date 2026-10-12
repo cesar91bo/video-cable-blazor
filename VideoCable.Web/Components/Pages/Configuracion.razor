@@ -117,6 +117,14 @@ else if (empresaEditando is not null)
                 </div>
             </div>
 
+            <div class="border rounded p-3 mt-4">
+                <h5>Facturación electrónica ARCA</h5>
+                <label class="form-label">Importe máximo de facturación mensual (pesos)</label>
+                <InputNumber class="form-control" @bind-Value="empresaEditando.LimiteFacturacionMensualArca" min="0" step="0.01" />
+                <div class="form-text">Vacío o cero desactiva el aviso. Se advierte desde el 80 % del importe, o si la próxima factura lo alcanza o supera. Permite continuar con la emisión.</div>
+                <div class="form-text">Solo considera facturas A, B y C autorizadas con CAE, según su fecha de emisión. No incluye facturas X ni comprobantes internos. Homologación y producción se controlan por separado.</div>
+            </div>
+
             <div class="mt-4 d-flex gap-2">
                 <button class="btn btn-success" @onclick="GuardarEmpresa">
                     Guardar cambios
@@ -206,6 +214,7 @@ else if (empresaEditando is not null)
                 Provincia = empresa.Provincia,
                 Telefono = empresa.Telefono,
                 Email = empresa.Email,
+                LimiteFacturacionMensualArca = empresa.LimiteFacturacionMensualArca,
 
                 Activa = empresa.Activa,
                 CreatedAt = empresa.CreatedAt,
@@ -258,6 +267,10 @@ else if (empresaEditando is not null)
             erroresValidacion.Add("El email no tiene un formato válido.");
         }
 
+        if (empresaEditando.LimiteFacturacionMensualArca is decimal limite &&
+            (limite < 0 || limite > 9999999999999999.99m || decimal.Round(limite, 2) != limite))
+            erroresValidacion.Add("El límite mensual debe ser un importe positivo con hasta dos decimales, o cero para desactivar el aviso.");
+
         if (erroresValidacion.Any())
             return;
 
@@ -276,6 +289,8 @@ else if (empresaEditando is not null)
             empresa.Provincia = empresaEditando.Provincia?.Trim();
             empresa.Telefono = empresaEditando.Telefono?.Trim();
             empresa.Email = empresaEditando.Email?.Trim();
+            empresa.LimiteFacturacionMensualArca = empresaEditando.LimiteFacturacionMensualArca is > 0
+                ? empresaEditando.LimiteFacturacionMensualArca : null;
 
             empresa.UpdatedAt = DateTime.Now;
 

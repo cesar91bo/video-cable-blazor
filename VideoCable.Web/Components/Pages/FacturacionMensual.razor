@@ -225,6 +225,17 @@
     </div>
 }
 
+@if (facturaAvisoArcaId.HasValue)
+{
+    <div class="alert alert-warning mt-3" role="alert">
+        <h5>Aviso de límite mensual ARCA</h5>
+        <pre class="mb-3" style="white-space: pre-wrap">@avisoLimiteArca</pre>
+        <p>Esta factura todavía no fue enviada a ARCA. Puede continuar con la emisión o cancelar.</p>
+        <button class="btn btn-warning" disabled="@autorizandoArca" @onclick="ContinuarAutorizacionArca">Continuar emisión ARCA</button>
+        <button class="btn btn-outline-secondary ms-2" disabled="@autorizandoArca" @onclick="CancelarAvisoArca">Cancelar</button>
+    </div>
+}
+
 @if (!string.IsNullOrWhiteSpace(mensajeArca))
 {
     <div class="alert alert-info mt-3">
@@ -339,6 +350,7 @@ else
                                 else
                                 {
                                     <button class="btn btn-sm btn-outline-danger"
+                                            disabled="@autorizandoArca"
                                             @onclick="() => AutorizarArca(factura.Id)">
                                         Autorizar ARCA
                                     </button>
@@ -383,6 +395,9 @@ else
     private string? manualObservaciones;
 
     private string? mensajeArca;
+    private string? avisoLimiteArca;
+    private int? facturaAvisoArcaId;
+    private bool autorizandoArca;
 
     protected override async Task OnInitializedAsync()
     {
@@ -603,8 +618,22 @@ else
         Navigation.NavigateTo($"/factura-imprimir/{facturaId}");
     }
 
-    private async Task AutorizarArca(int facturaId)
+    private Task ContinuarAutorizacionArca() => facturaAvisoArcaId.HasValue
+        ? AutorizarArca(facturaAvisoArcaId.Value, true) : Task.CompletedTask;
+
+    private void CancelarAvisoArca()
     {
+        facturaAvisoArcaId = null;
+        avisoLimiteArca = null;
+        mensajeArca = "Emisión cancelada. No se envió la factura a ARCA.";
+    }
+
+    private async Task AutorizarArca(int facturaId, bool continuarConAvisoLimite = false)
+    {
+        if (autorizandoArca) return;
+        autorizandoArca = true;
+        facturaAvisoArcaId = null;
+        avisoLimiteArca = null;
         mensajeArca = "Autorizando factura en ARCA...";
         mensaje = null;
         error = null;
@@ -614,15 +643,23 @@ else
         {
             mensajeArca = await ArcaFacturaService.AutorizarFacturaAsync(
                 facturaId,
-                AmbienteFiscal.Homologacion);
+                AmbienteFiscal.Homologacion,
+                continuarConAvisoLimite);
 
             await CargarFacturasPeriodo();
+        }
+        catch (AvisoLimiteFacturacionException ex)
+        {
+            mensajeArca = null;
+            avisoLimiteArca = ex.Message;
+            facturaAvisoArcaId = facturaId;
         }
         catch (Exception ex)
         {
             mensajeArca = $"Error al autorizar ARCA: {ex.Message}";
             Console.WriteLine(ex.ToString());
         }
+        finally { autorizandoArca = false; }
     }
 
     private async Task CargarServiciosManual()

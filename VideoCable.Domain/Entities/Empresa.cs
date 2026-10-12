@@ -22,4 +22,6 @@ public class Empresa : AuditableEntity
     public string? Email { get; set; }
 
     public bool Activa { get; set; } = true;
+
+    public decimal? LimiteFacturacionMensualArca { get; set; }
 }
