@@ -24,4 +24,6 @@ public class Empresa : AuditableEntity
     public bool Activa { get; set; } = true;
 
     public decimal? LimiteFacturacionMensualArca { get; set; }
+    public AmbienteFiscal AmbienteArca { get; set; } = AmbienteFiscal.Homologacion;
+    public decimal AlicuotaIvaArca { get; set; } = 21m;
 }

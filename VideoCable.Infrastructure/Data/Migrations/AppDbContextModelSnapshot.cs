@@ -36,6 +36,9 @@ namespace VideoCable.Infrastructure.Data.Migrations
                     b.Property<int>("Ambiente")
                         .HasColumnType("int");
 
+                    b.Property<byte[]>("ArchivoPfxProtegido")
+                        .HasColumnType("varbinary(max)");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -415,6 +418,16 @@ namespace VideoCable.Infrastructure.Data.Migrations
                     b.Property<bool>("Activa")
                         .HasColumnType("bit");
 
+                    b.Property<decimal>("AlicuotaIvaArca")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("decimal(5,2)")
+                        .HasDefaultValue(21m);
+
+                    b.Property<int>("AmbienteArca")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
                     b.Property<int>("CondicionIva")
                         .HasColumnType("int");
 
@@ -506,6 +519,9 @@ namespace VideoCable.Infrastructure.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AmbienteArca")
+                        .HasColumnType("int");
+
                     b.Property<string>("CajaDescripcionSnapshot")
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
@@ -535,6 +551,9 @@ namespace VideoCable.Infrastructure.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int?>("CondicionIvaReceptorArca")
+                        .HasColumnType("int");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -545,6 +564,12 @@ namespace VideoCable.Infrastructure.Data.Migrations
                         .HasColumnType("datetime2");
 
                     b.Property<int?>("DeletedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<long?>("DocNroReceptorArca")
+                        .HasColumnType("bigint");
+
+                    b.Property<int?>("DocTipoReceptorArca")
                         .HasColumnType("int");
 
                     b.Property<string>("EmpresaCondicionIvaSnapshot")
@@ -671,6 +696,9 @@ namespace VideoCable.Infrastructure.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("Ambiente")
+                        .HasColumnType("int");
+
                     b.Property<string>("CAE")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -704,9 +732,15 @@ namespace VideoCable.Infrastructure.Data.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
 
+                    b.Property<long?>("NumeroSolicitado")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Observaciones")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int?>("PuntoVentaSolicitadoId")
+                        .HasColumnType("int");
 
                     b.Property<string>("QrUrl")
                         .HasMaxLength(1000)
@@ -729,6 +763,9 @@ namespace VideoCable.Infrastructure.Data.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("rowversion");
 
+                    b.Property<int?>("TipoComprobanteSolicitado")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
@@ -741,6 +778,10 @@ namespace VideoCable.Infrastructure.Data.Migrations
 
                     b.HasIndex("FacturaId")
                         .IsUnique();
+
+                    b.HasIndex("Ambiente", "PuntoVentaSolicitadoId", "TipoComprobanteSolicitado", "NumeroSolicitado")
+                        .IsUnique()
+                        .HasFilter("[NumeroSolicitado] IS NOT NULL AND [Resultado] <> 'R'");
 
                     b.ToTable("FacturasElectronicas", (string)null);
                 });

@@ -50,5 +50,7 @@ public class EmpresaConfiguration : IEntityTypeConfiguration<Empresa>
 
         builder.Property(x => x.LimiteFacturacionMensualArca)
             .HasColumnType("decimal(18,2)");
+        builder.Property(x => x.AlicuotaIvaArca).HasColumnType("decimal(5,2)").HasDefaultValue(21m).HasSentinel(-1m);
+        builder.Property(x => x.AmbienteArca).HasDefaultValue(VideoCable.Domain.Enums.AmbienteFiscal.Homologacion).HasSentinel((VideoCable.Domain.Enums.AmbienteFiscal)0);
     }
 }

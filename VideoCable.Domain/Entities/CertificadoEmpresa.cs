@@ -15,6 +15,7 @@ public class CertificadoEmpresa : AuditableEntity
 
     public string? RutaArchivo { get; set; }
     public string? Password { get; set; }
+    public byte[]? ArchivoPfxProtegido { get; set; }
 
     public string? Subject { get; set; }
 

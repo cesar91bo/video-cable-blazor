@@ -1,4 +1,5 @@
 using VideoCable.Domain.Common;
+using VideoCable.Domain.Enums;
 
 namespace VideoCable.Domain.Entities;
 
@@ -24,4 +25,8 @@ public class FacturaElectronica : AuditableEntity
     public string? ResponseResumen { get; set; }
 
     public string? QrUrl { get; set; }
+    public AmbienteFiscal? Ambiente { get; set; }
+    public int? PuntoVentaSolicitadoId { get; set; }
+    public int? TipoComprobanteSolicitado { get; set; }
+    public long? NumeroSolicitado { get; set; }
 }

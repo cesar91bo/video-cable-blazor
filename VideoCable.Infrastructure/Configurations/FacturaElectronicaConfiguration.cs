@@ -44,6 +44,8 @@ public class FacturaElectronicaConfiguration : IEntityTypeConfiguration<FacturaE
             .IsUnique();
 
         builder.HasIndex(x => x.CAE);
+        builder.HasIndex(x => new { x.Ambiente, x.PuntoVentaSolicitadoId, x.TipoComprobanteSolicitado, x.NumeroSolicitado })
+            .IsUnique().HasFilter("[NumeroSolicitado] IS NOT NULL AND [Resultado] <> 'R'");
 
         builder.Property(x => x.RowVersion)
             .IsRowVersion();

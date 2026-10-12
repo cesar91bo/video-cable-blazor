@@ -1,638 +1,220 @@
-﻿using System.Globalization;
-using System.Text;
+using System.Globalization;
 using System.Xml.Linq;
 using Microsoft.EntityFrameworkCore;
+using VideoCable.Domain.Entities;
 using VideoCable.Domain.Enums;
 using VideoCable.Infrastructure.Data;
-using VideoCable.Domain.Entities;
-
 namespace VideoCable.Infrastructure.Services.Arca;
 
-public class ArcaFacturaService
+public sealed class ArcaFacturaService(IDbContextFactory<AppDbContext> factory, ArcaAuthService authService, ArcaWsfeClient wsfe)
 {
-    private readonly AppDbContext _dbContext;
-    private readonly IHttpClientFactory _httpClientFactory;
-
-    public ArcaFacturaService(
-        AppDbContext dbContext,
-        IHttpClientFactory httpClientFactory)
+    public async Task<string> PrepararFacturaAsync(int id)
     {
-        _dbContext = dbContext;
-        _httpClientFactory = httpClientFactory;
+        await using var db = await factory.CreateDbContextAsync();
+        var f = await Cargar(db, id);
+        await using var bloqueo = await ArcaSqlLock.Adquirir(db, $"ARCA-EMISION:{f.Empresa.Cuit}:{f.Empresa.AmbienteArca}");
+        await db.Entry(f).ReloadAsync();
+        if (f.IsDeleted || f.EstadoCobranza == EstadoCobranzaFactura.Anulada || f.EstadoFiscal == EstadoFiscalFactura.Autorizada)
+            throw new InvalidOperationException("No puede modificar una factura anulada, eliminada o autorizada.");
+        if (await db.FacturasElectronicas.AnyAsync(x => x.FacturaId == id && x.NumeroSolicitado != null && x.Resultado != "R"))
+            throw new InvalidOperationException("La factura tiene un intento guardado. Recupere su estado antes de modificarla.");
+        ArcaFiscalRules.Preparar(f, DateTime.Today);
+        await db.SaveChangesAsync();
+        return $"Preparada como {f.TipoComprobante} para {f.AmbienteArca}. Todavía no fue enviada a ARCA.";
     }
 
-    public async Task<string> ConsultarUltimoComprobanteAsync(
-        int empresaId,
-        AmbienteFiscal ambiente,
-        int puntoVenta,
-        int tipoComprobante)
+    public async Task<string> AutorizarFacturaAsync(int facturaId, AmbienteFiscal ambiente, bool continuarConAvisoLimite = false)
     {
-        var auth = await ObtenerAuthAsync(empresaId, ambiente, "wsfe");
-
-        var soap = $"""
-        <?xml version="1.0" encoding="utf-8"?>
-        <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                       xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-                       xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-          <soap:Body>
-            <FECompUltimoAutorizado xmlns="http://ar.gov.afip.dif.FEV1/">
-              <Auth>
-                <Token>{auth.Token}</Token>
-                <Sign>{auth.Sign}</Sign>
-                <Cuit>{auth.Cuit}</Cuit>
-              </Auth>
-              <PtoVta>{puntoVenta}</PtoVta>
-              <CbteTipo>{tipoComprobante}</CbteTipo>
-            </FECompUltimoAutorizado>
-          </soap:Body>
-        </soap:Envelope>
-        """;
-
-        var respuesta = await LlamarWsfeAsync(
-            soap,
-            "http://ar.gov.afip.dif.FEV1/FECompUltimoAutorizado",
-            ambiente);
-
-        var xml = XDocument.Parse(respuesta);
-
-        var cbteNro = xml
-            .Descendants()
-            .FirstOrDefault(x => x.Name.LocalName == "CbteNro")
-            ?.Value;
-
-        var errores = LeerErrores(xml);
-
-        if (!string.IsNullOrWhiteSpace(errores))
-            return $"ARCA devolvió errores:{Environment.NewLine}{errores}";
-
-        return $"Último comprobante autorizado para PV {puntoVenta}, Tipo {tipoComprobante}: {cbteNro}";
-    }
-
-    public async Task<string> SolicitarCaeFacturaBPruebaAsync(
-        int empresaId,
-        AmbienteFiscal ambiente,
-        int puntoVenta)
-    {
-        const int tipoComprobanteFacturaB = 6;
-
-        var auth = await ObtenerAuthAsync(empresaId, ambiente, "wsfe");
-
-        var ultimo = await ObtenerUltimoNumeroAsync(
-            auth,
-            ambiente,
-            puntoVenta,
-            tipoComprobanteFacturaB);
-
-        var proximoNumero = ultimo + 1;
-
-        var hoy = DateTime.Today;
-        var fecha = hoy.ToString("yyyyMMdd");
-
-        decimal total = 1000m;
-        decimal neto = Math.Round(total / 1.21m, 2);
-        decimal iva = total - neto;
-
-        var totalStr = FormatoDecimal(total);
-        var netoStr = FormatoDecimal(neto);
-        var ivaStr = FormatoDecimal(iva);
-
-        var soap = $"""
-<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-  <soap:Body>
-    <FECAESolicitar xmlns="http://ar.gov.afip.dif.FEV1/">
-      <Auth>
-        <Token>{auth.Token}</Token>
-        <Sign>{auth.Sign}</Sign>
-        <Cuit>{auth.Cuit}</Cuit>
-      </Auth>
-      <FeCAEReq>
-        <FeCabReq>
-          <CantReg>1</CantReg>
-          <PtoVta>{puntoVenta}</PtoVta>
-          <CbteTipo>{tipoComprobanteFacturaB}</CbteTipo>
-        </FeCabReq>
-        <FeDetReq>
-          <FECAEDetRequest>
-            <Concepto>2</Concepto>
-            <DocTipo>99</DocTipo>
-            <DocNro>0</DocNro>
-            <CbteDesde>{proximoNumero}</CbteDesde>
-            <CbteHasta>{proximoNumero}</CbteHasta>
-            <CbteFch>{fecha}</CbteFch>
-            <ImpTotal>{totalStr}</ImpTotal>
-            <ImpTotConc>0.00</ImpTotConc>
-            <ImpNeto>{netoStr}</ImpNeto>
-            <ImpOpEx>0.00</ImpOpEx>
-            <ImpTrib>0.00</ImpTrib>
-            <ImpIVA>{ivaStr}</ImpIVA>
-            <FchServDesde>{fecha}</FchServDesde>
-            <FchServHasta>{fecha}</FchServHasta>
-            <FchVtoPago>{fecha}</FchVtoPago>
-            <MonId>PES</MonId>
-            <MonCotiz>1.00</MonCotiz>
-            <CondicionIVAReceptorId>5</CondicionIVAReceptorId>
-            <Iva>
-              <AlicIva>
-                <Id>5</Id>
-                <BaseImp>{netoStr}</BaseImp>
-                <Importe>{ivaStr}</Importe>
-              </AlicIva>
-            </Iva>
-          </FECAEDetRequest>
-        </FeDetReq>
-      </FeCAEReq>
-    </FECAESolicitar>
-  </soap:Body>
-</soap:Envelope>
-""";
-
-        var respuesta = await LlamarWsfeAsync(
-            soap,
-            "http://ar.gov.afip.dif.FEV1/FECAESolicitar",
-            ambiente);
-
-        var xml = XDocument.Parse(respuesta);
-
-        var errores = LeerErrores(xml);
-        var observaciones = LeerObservaciones(xml);
-
-        var resultado = xml
-            .Descendants()
-            .FirstOrDefault(x => x.Name.LocalName == "Resultado")
-            ?.Value;
-
-        var cae = xml
-            .Descendants()
-            .FirstOrDefault(x => x.Name.LocalName == "CAE")
-            ?.Value;
-
-        var caeVto = xml
-            .Descendants()
-            .FirstOrDefault(x => x.Name.LocalName == "CAEFchVto")
-            ?.Value;
-
-        if (!string.IsNullOrWhiteSpace(errores))
+        if (!Enum.IsDefined(ambiente)) throw new InvalidOperationException("Ambiente ARCA no válido.");
+        await using var db = await factory.CreateDbContextAsync();
+        var f = await Cargar(db, facturaId);
+        await using var bloqueo = await ArcaSqlLock.Adquirir(db, $"ARCA-EMISION:{f.Empresa.Cuit}:{ambiente}");
+        await db.Entry(f).ReloadAsync();
+        if (f.TipoComprobante == TipoComprobante.FacturaX) return "La factura X es interna y no se envía a ARCA.";
+        if (f.AmbienteArca.HasValue && f.AmbienteArca != ambiente) throw new InvalidOperationException($"Esta factura pertenece a {f.AmbienteArca}. No se puede reutilizar en {ambiente}.");
+        if (f.EstadoFiscal == EstadoFiscalFactura.Autorizada) return $"Ya autorizada en {f.AmbienteArca}. No se emitió nuevamente.";
+        if (f.IsDeleted || f.EstadoFiscal == EstadoFiscalFactura.Anulada || f.EstadoCobranza == EstadoCobranzaFactura.Anulada) throw new InvalidOperationException("Factura anulada o eliminada.");
+        if (f.Empresa.AmbienteArca != ambiente) throw new InvalidOperationException("El ambiente no coincide con Configuración ARCA.");
+        var intento = await db.FacturasElectronicas.SingleOrDefaultAsync(x => x.FacturaId == f.Id);
+        var recuperar = intento?.NumeroSolicitado is not null && intento.Resultado != "R";
+        if (!recuperar && await db.FacturasElectronicas.AnyAsync(x => x.Factura.EmpresaId == f.EmpresaId && x.Ambiente == ambiente && x.FacturaId != f.Id && (x.Resultado == "P" || x.Resultado == "U")))
+            throw new InvalidOperationException("Hay una emisión pendiente de recuperación. Reintente Autorizar ARCA en esa factura antes de emitir otra.");
+        PuntoVenta pv; long numero; CredencialesArca auth;
+        if (recuperar)
         {
-            return
-                "ARCA rechazó la solicitud." + Environment.NewLine +
-                errores + Environment.NewLine +
-                observaciones;
-        }
-
-        return
-            "CAE solicitado correctamente en HOMOLOGACIÓN." + Environment.NewLine +
-            $"Resultado: {resultado}" + Environment.NewLine +
-            $"Punto de venta: {puntoVenta}" + Environment.NewLine +
-            $"Tipo comprobante: Factura B ({tipoComprobanteFacturaB})" + Environment.NewLine +
-            $"Número: {proximoNumero}" + Environment.NewLine +
-            $"Importe total: {total:C2}" + Environment.NewLine +
-            $"CAE: {cae}" + Environment.NewLine +
-            $"Vencimiento CAE: {caeVto}" + Environment.NewLine +
-            observaciones;
-    }
-
-    private async Task GuardarResultadoFacturaElectronicaAsync(
-    Factura factura,
-    string resultado,
-    string? cae,
-    DateTime? fechaVencimientoCae,
-    string? observaciones,
-    string? errores,
-    string requestResumen,
-    string responseResumen)
-    {
-        var facturaElectronica = await _dbContext.FacturasElectronicas
-            .FirstOrDefaultAsync(x => x.FacturaId == factura.Id);
-
-        if (facturaElectronica is null)
-        {
-            facturaElectronica = new FacturaElectronica
+            if (intento!.Ambiente != ambiente) throw new InvalidOperationException("El intento pertenece a otro ambiente.");
+            pv = await db.PuntosVenta.SingleAsync(x => x.Id == intento.PuntoVentaSolicitadoId);
+            if (pv.EmpresaId != f.EmpresaId || pv.Ambiente != ambiente) throw new InvalidOperationException("Se modificó el punto de venta del intento. Restaure su configuración.");
+            numero = intento.NumeroSolicitado!.Value;
+            if (intento.TipoComprobanteSolicitado != (int)f.TipoComprobante || intento.RequestResumen != ArcaWsfeClient.Solicitud(f, pv.Numero, numero).ToString(SaveOptions.DisableFormatting))
+                throw new InvalidOperationException("Los datos cambiaron después del intento. No se reenviará un contenido diferente con el mismo número.");
+            auth = await authService.ObtenerCredencialesAsync(f.EmpresaId, ambiente);
+            var consulta = await wsfe.Consultar(auth, ambiente, pv.Numero, (int)f.TipoComprobante, numero);
+            if (consulta is not null)
             {
-                FacturaId = factura.Id,
-                CreatedAt = DateTime.Now
-            };
-
-            _dbContext.FacturasElectronicas.Add(facturaElectronica);
-        }
-
-        facturaElectronica.CAE = cae ?? string.Empty;
-        facturaElectronica.FechaVencimientoCAE = fechaVencimientoCae ?? DateTime.MinValue;
-        facturaElectronica.FechaAutorizacion = DateTime.Now;
-        facturaElectronica.Resultado = resultado;
-        facturaElectronica.Observaciones = observaciones;
-        facturaElectronica.Errores = errores;
-        facturaElectronica.RequestResumen = requestResumen;
-        facturaElectronica.ResponseResumen = responseResumen;
-        facturaElectronica.UpdatedAt = DateTime.Now;
-    }
-
-    public async Task<string> AutorizarFacturaAsync(
-    int facturaId,
-    AmbienteFiscal ambiente,
-    bool continuarConAvisoLimite = false)
-    {
-        const int condicionIvaConsumidorFinal = 5;
-
-        var factura = await _dbContext.Facturas
-            .Include(x => x.Empresa)
-            .Include(x => x.Cliente)
-            .Include(x => x.Items)
-            .FirstOrDefaultAsync(x => x.Id == facturaId);
-
-        if (factura is null)
-            return $"No se encontró la factura Id {facturaId}.";
-
-        if (factura.TipoComprobante == TipoComprobante.FacturaX)
-            return "La factura es tipo X. No requiere autorización ARCA.";
-
-        if (factura.EstadoFiscal == EstadoFiscalFactura.Autorizada)
-            return "La factura ya está autorizada por ARCA.";
-
-        if (factura.IsDeleted || factura.EstadoFiscal == EstadoFiscalFactura.Anulada ||
-            factura.EstadoCobranza == EstadoCobranzaFactura.Anulada)
-            return "No se puede autorizar una factura anulada o eliminada.";
-
-        var avisoLimite = await ObtenerAvisoLimiteMensualAsync(factura, ambiente);
-        if (avisoLimite is not null && !continuarConAvisoLimite)
-            throw new AvisoLimiteFacturacionException(avisoLimite);
-
-        var puntoVenta = await _dbContext.PuntosVenta
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x =>
-                x.EmpresaId == factura.EmpresaId &&
-                x.Ambiente == ambiente &&
-                x.Activo &&
-                x.Predeterminado &&
-                !x.IsDeleted);
-
-        if (puntoVenta is null)
-            return "No se encontró un punto de venta electrónico predeterminado para el ambiente.";
-
-        var tipoComprobanteArca = (int)factura.TipoComprobante;
-
-        var auth = await ObtenerAuthAsync(
-            factura.EmpresaId,
-            ambiente,
-            "wsfe");
-
-        var ultimo = await ObtenerUltimoNumeroAsync(
-            auth,
-            ambiente,
-            puntoVenta.Numero,
-            tipoComprobanteArca);
-
-        var proximoNumero = ultimo + 1;
-
-        var fechaComprobante = factura.FechaEmision.ToString("yyyyMMdd");
-        var fechaServicioDesde = new DateTime(factura.PeriodoAnio, factura.PeriodoMes, 1)
-            .ToString("yyyyMMdd");
-
-        var fechaServicioHasta = new DateTime(factura.PeriodoAnio, factura.PeriodoMes, 1)
-            .AddMonths(1)
-            .AddDays(-1)
-            .ToString("yyyyMMdd");
-
-        var fechaVencimientoPago = factura.FechaVencimiento.ToString("yyyyMMdd");
-
-        decimal total = factura.Total;
-
-        decimal neto;
-        decimal iva;
-
-        if (factura.ImporteIva > 0)
-        {
-            neto = factura.Subtotal;
-            iva = factura.ImporteIva;
+                ValidarCoincidencia(f, pv.Numero, numero, consulta);
+                await Aceptar(db, f, intento, pv, numero, ArcaWsfeClient.Valor(consulta, "CodAutorizacion")!, ArcaWsfeClient.Valor(consulta, "FchVto")!, consulta.ToString());
+                return Resumen(f, intento, true);
+            }
+            if (intento.Resultado == "A" || await wsfe.Ultimo(auth, ambiente, pv.Numero, (int)f.TipoComprobante) != numero - 1)
+                throw new InvalidOperationException("No se puede confirmar que el número reservado esté libre. No se emitió otra factura. Revise ARCA.");
         }
         else
         {
-            neto = Math.Round(total / 1.21m, 2);
-            iva = total - neto;
+            if (f.TipoComprobante is not (TipoComprobante.FacturaA or TipoComprobante.FacturaB or TipoComprobante.FacturaC))
+                throw new InvalidOperationException("Este flujo admite facturas A, B y C. Las notas requieren comprobantes asociados.");
+            if (f.DocTipoReceptorArca is null) ArcaFiscalRules.Preparar(f, f.FechaEmision);
+            pv = await db.PuntosVenta.SingleOrDefaultAsync(x => x.EmpresaId == f.EmpresaId && x.Ambiente == ambiente && x.Activo && x.Predeterminado && !x.IsDeleted && x.Tipo == TipoPuntoVenta.Electronico)
+                ?? throw new InvalidOperationException($"Configure un punto de venta electrónico predeterminado de {ambiente}.");
+            var aviso = await Aviso(db, f, ambiente);
+            if (aviso is not null && !continuarConAvisoLimite) throw new AvisoLimiteFacturacionException(aviso);
+            auth = await authService.ObtenerCredencialesAsync(f.EmpresaId, ambiente);
+            await wsfe.ProbarPuntoVenta(auth, ambiente, pv.Numero);
+            numero = await wsfe.Ultimo(auth, ambiente, pv.Numero, (int)f.TipoComprobante) + 1;
+            if (numero > 99999999) throw new InvalidOperationException("Se agotó la numeración.");
+            if (intento is null) { intento = new FacturaElectronica { FacturaId = f.Id, CreatedAt = DateTime.Now }; db.FacturasElectronicas.Add(intento); }
+            intento.Ambiente = ambiente; intento.PuntoVentaSolicitadoId = pv.Id; intento.TipoComprobanteSolicitado = (int)f.TipoComprobante; intento.NumeroSolicitado = numero;
+            intento.RequestResumen = ArcaWsfeClient.Solicitud(f, pv.Numero, numero).ToString(SaveOptions.DisableFormatting);
         }
-
-        var totalStr = FormatoDecimal(total);
-        var netoStr = FormatoDecimal(neto);
-        var ivaStr = FormatoDecimal(iva);
-
-        var soap = $"""
-    <?xml version="1.0" encoding="utf-8"?>
-    <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                   xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-                   xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-      <soap:Body>
-        <FECAESolicitar xmlns="http://ar.gov.afip.dif.FEV1/">
-          <Auth>
-            <Token>{auth.Token}</Token>
-            <Sign>{auth.Sign}</Sign>
-            <Cuit>{auth.Cuit}</Cuit>
-          </Auth>
-          <FeCAEReq>
-            <FeCabReq>
-              <CantReg>1</CantReg>
-              <PtoVta>{puntoVenta.Numero}</PtoVta>
-              <CbteTipo>{tipoComprobanteArca}</CbteTipo>
-            </FeCabReq>
-            <FeDetReq>
-              <FECAEDetRequest>
-                <Concepto>2</Concepto>
-                <DocTipo>99</DocTipo>
-                <DocNro>0</DocNro>
-                <CbteDesde>{proximoNumero}</CbteDesde>
-                <CbteHasta>{proximoNumero}</CbteHasta>
-                <CbteFch>{fechaComprobante}</CbteFch>
-                <ImpTotal>{totalStr}</ImpTotal>
-                <ImpTotConc>0.00</ImpTotConc>
-                <ImpNeto>{netoStr}</ImpNeto>
-                <ImpOpEx>0.00</ImpOpEx>
-                <ImpTrib>0.00</ImpTrib>
-                <ImpIVA>{ivaStr}</ImpIVA>
-                <FchServDesde>{fechaServicioDesde}</FchServDesde>
-                <FchServHasta>{fechaServicioHasta}</FchServHasta>
-                <FchVtoPago>{fechaVencimientoPago}</FchVtoPago>
-                <MonId>PES</MonId>
-                <MonCotiz>1.00</MonCotiz>
-                <CondicionIVAReceptorId>{condicionIvaConsumidorFinal}</CondicionIVAReceptorId>
-                <Iva>
-                  <AlicIva>
-                    <Id>5</Id>
-                    <BaseImp>{netoStr}</BaseImp>
-                    <Importe>{ivaStr}</Importe>
-                  </AlicIva>
-                </Iva>
-              </FECAEDetRequest>
-            </FeDetReq>
-          </FeCAEReq>
-        </FECAESolicitar>
-      </soap:Body>
-    </soap:Envelope>
-    """;
-
-        var respuesta = await LlamarWsfeAsync(
-            soap,
-            "http://ar.gov.afip.dif.FEV1/FECAESolicitar",
-            ambiente);
-
-        var xml = XDocument.Parse(respuesta);
-
-        var errores = LeerErrores(xml);
-        var observaciones = LeerObservaciones(xml);
-
-        var resultado = xml
-            .Descendants()
-            .FirstOrDefault(x => x.Name.LocalName == "Resultado")
-            ?.Value;
-
-        var cae = xml
-            .Descendants()
-            .FirstOrDefault(x => x.Name.LocalName == "CAE")
-            ?.Value;
-
-        var caeVtoTexto = xml
-            .Descendants()
-            .FirstOrDefault(x => x.Name.LocalName == "CAEFchVto")
-            ?.Value;
-
-        if (resultado != "A" || string.IsNullOrWhiteSpace(cae))
+        ArcaFiscalRules.ValidarFecha(f, DateTime.Today);
+        if (f.Total <= 0 || f.Subtotal + f.ImporteIva != f.Total || f.Items.Sum(x => x.Subtotal) != f.Subtotal || f.Items.Sum(x => x.ImporteIva) != f.ImporteIva)
+            throw new InvalidOperationException("Los importes fiscales no coinciden con los ítems.");
+        intento!.Resultado = "P"; intento.Errores = null; intento.UpdatedAt = DateTime.Now;
+        // La reserva y el pedido sin credenciales se guardan ANTES del envío.
+        await db.SaveChangesAsync();
+        try
         {
-            factura.EstadoFiscal = EstadoFiscalFactura.Rechazada;
-            factura.UpdatedAt = DateTime.Now;
-
-            await GuardarResultadoFacturaElectronicaAsync(
-                factura: factura,
-                resultado: resultado ?? "R",
-                cae: null,
-                fechaVencimientoCae: null,
-                observaciones: observaciones,
-                errores: errores,
-                requestResumen: $"PV {puntoVenta.Numero} - Tipo {tipoComprobanteArca} - Nro {proximoNumero}",
-                responseResumen: respuesta);
-
-            await _dbContext.SaveChangesAsync();
-
-            return
-                "ARCA rechazó la factura." + Environment.NewLine +
-                $"Resultado: {resultado}" + Environment.NewLine +
-                errores + Environment.NewLine +
-                observaciones;
-        }
-
-        var fechaVencimientoCae = DateTime.ParseExact(
-            caeVtoTexto!,
-            "yyyyMMdd",
-            CultureInfo.InvariantCulture);
-
-        factura.PuntoVentaId = puntoVenta.Id;
-        factura.PuntoVentaNumeroSnapshot = puntoVenta.Numero;
-        factura.NumeroComprobante = proximoNumero;
-        factura.NumeroComprobanteFormateado = $"{puntoVenta.Numero:0000}-{proximoNumero:00000000}";
-        factura.EstadoFiscal = EstadoFiscalFactura.Autorizada;
-        factura.UpdatedAt = DateTime.Now;
-
-        await GuardarResultadoFacturaElectronicaAsync(
-            factura: factura,
-            resultado: resultado ?? "A",
-            cae: cae,
-            fechaVencimientoCae: fechaVencimientoCae,
-            observaciones: observaciones,
-            errores: errores,
-            requestResumen: $"PV {puntoVenta.Numero} - Tipo {tipoComprobanteArca} - Nro {proximoNumero}",
-            responseResumen: respuesta);
-
-        await _dbContext.SaveChangesAsync();
-
-        return
-            (avisoLimite is not null ? avisoLimite + Environment.NewLine + Environment.NewLine : "") +
-            $"Factura autorizada correctamente en ARCA {ambiente}." + Environment.NewLine +
-            $"Factura Id: {factura.Id}" + Environment.NewLine +
-            $"Comprobante: {factura.NumeroComprobanteFormateado}" + Environment.NewLine +
-            $"Tipo: {factura.TipoComprobante}" + Environment.NewLine +
-            $"Total: {factura.Total:C2}" + Environment.NewLine +
-            $"CAE: {cae}" + Environment.NewLine +
-            $"Vencimiento CAE: {fechaVencimientoCae:dd/MM/yyyy}" + Environment.NewLine +
-            observaciones;
-    }
-
-    private async Task<long> ObtenerUltimoNumeroAsync(
-        ArcaAuthData auth,
-        AmbienteFiscal ambiente,
-        int puntoVenta,
-        int tipoComprobante)
-    {
-        var soap = $"""
-        <?xml version="1.0" encoding="utf-8"?>
-        <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                       xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-                       xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-          <soap:Body>
-            <FECompUltimoAutorizado xmlns="http://ar.gov.afip.dif.FEV1/">
-              <Auth>
-                <Token>{auth.Token}</Token>
-                <Sign>{auth.Sign}</Sign>
-                <Cuit>{auth.Cuit}</Cuit>
-              </Auth>
-              <PtoVta>{puntoVenta}</PtoVta>
-              <CbteTipo>{tipoComprobante}</CbteTipo>
-            </FECompUltimoAutorizado>
-          </soap:Body>
-        </soap:Envelope>
-        """;
-
-        var respuesta = await LlamarWsfeAsync(
-            soap,
-            "http://ar.gov.afip.dif.FEV1/FECompUltimoAutorizado",
-            ambiente);
-
-        var xml = XDocument.Parse(respuesta);
-
-        var errores = LeerErrores(xml);
-
-        if (!string.IsNullOrWhiteSpace(errores))
-            throw new Exception(errores);
-
-        var cbteNroTexto = xml
-            .Descendants()
-            .FirstOrDefault(x => x.Name.LocalName == "CbteNro")
-            ?.Value;
-
-        if (long.TryParse(cbteNroTexto, out var numero))
-            return numero;
-
-        return 0;
-    }
-
-    private async Task<ArcaAuthData> ObtenerAuthAsync(
-        int empresaId,
-        AmbienteFiscal ambiente,
-        string servicio)
-    {
-        var empresa = await _dbContext.Empresas
-            .AsNoTracking()
-            .FirstAsync(x => x.Id == empresaId);
-
-        var token = await _dbContext.AfipTokens
-            .AsNoTracking()
-            .Where(x =>
-                x.EmpresaId == empresaId &&
-                x.Ambiente == ambiente &&
-                x.Servicio == servicio &&
-                x.FechaHasta > DateTime.Now.AddMinutes(5))
-            .OrderByDescending(x => x.FechaHasta)
-            .FirstOrDefaultAsync();
-
-        if (token is null)
-            throw new Exception("No hay Token/Sign vigente. Primero ejecutá Probar WSAA homologación.");
-
-        return new ArcaAuthData
-        {
-            Cuit = long.Parse(empresa.Cuit),
-            Token = token.Token,
-            Sign = token.Sign
-        };
-    }
-
-    private async Task<string> LlamarWsfeAsync(
-        string soap,
-        string soapAction,
-        AmbienteFiscal ambiente)
-    {
-        var url = ambiente == AmbienteFiscal.Homologacion
-            ? "https://wswhomo.afip.gov.ar/wsfev1/service.asmx"
-            : "https://servicios1.afip.gov.ar/wsfev1/service.asmx";
-
-        var client = _httpClientFactory.CreateClient();
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, url);
-        request.Content = new StringContent(soap, Encoding.UTF8, "text/xml");
-        request.Headers.Add("SOAPAction", soapAction);
-
-        using var response = await client.SendAsync(request);
-        var responseText = await response.Content.ReadAsStringAsync();
-
-        if (!response.IsSuccessStatusCode)
-        {
-            throw new Exception(
-                $"WSFE respondió HTTP {(int)response.StatusCode}. Respuesta: {responseText}");
-        }
-
-        return responseText;
-    }
-
-    private static string LeerErrores(XDocument xml)
-    {
-        var errores = xml
-            .Descendants()
-            .Where(x => x.Name.LocalName == "Err")
-            .Select(x =>
+            var respuesta = await wsfe.Emitir(auth, ambiente, f, pv.Numero, numero);
+            var detalle = respuesta.Descendants().FirstOrDefault(x => x.Name.LocalName == "FECAEDetResponse");
+            var cae = detalle is null ? null : ArcaWsfeClient.Valor(detalle, "CAE");
+            if (detalle is not null && ArcaWsfeClient.Valor(detalle, "Resultado") == "A" && !string.IsNullOrWhiteSpace(cae))
             {
-                var codigo = x.Elements().FirstOrDefault(e => e.Name.LocalName == "Code")?.Value;
-                var mensaje = x.Elements().FirstOrDefault(e => e.Name.LocalName == "Msg")?.Value;
-
-                return $"Código {codigo}: {mensaje}";
-            })
-            .ToList();
-
-        return string.Join(Environment.NewLine, errores);
+                var cabecera = respuesta.Descendants().FirstOrDefault(x => x.Name.LocalName == "FeCabResp");
+                if (cabecera is null || ArcaWsfeClient.Valor(cabecera, "Cuit") != f.EmpresaCuitSnapshot ||
+                    ArcaWsfeClient.Valor(cabecera, "PtoVta") != pv.Numero.ToString() || ArcaWsfeClient.Valor(cabecera, "CbteTipo") != ((int)f.TipoComprobante).ToString() ||
+                    ArcaWsfeClient.Valor(detalle, "CbteDesde") != numero.ToString() || ArcaWsfeClient.Valor(detalle, "CbteHasta") != numero.ToString() ||
+                    ArcaWsfeClient.Valor(detalle, "DocTipo") != f.DocTipoReceptorArca.ToString() || ArcaWsfeClient.Valor(detalle, "DocNro") != f.DocNroReceptorArca.ToString() ||
+                    ArcaWsfeClient.Valor(detalle, "CbteFch") != f.FechaEmision.ToString("yyyyMMdd"))
+                    throw new InvalidOperationException("La respuesta autorizada no identifica el comprobante solicitado. Se debe recuperar mediante consulta.");
+                await Aceptar(db, f, intento, pv, numero, cae, ArcaWsfeClient.Valor(detalle, "CAEFchVto")!, respuesta.ToString());
+                return Resumen(f, intento, false);
+            }
+            if (!(detalle is not null && ArcaWsfeClient.Valor(detalle, "Resultado") == "R" || ArcaWsfeClient.Valor(respuesta, "Resultado") == "R"))
+                throw new InvalidOperationException("Respuesta sin autorización ni rechazo concluyente.");
+            intento.Resultado = "R"; intento.ResponseResumen = respuesta.ToString(); intento.Errores = ArcaWsfeClient.Mensajes(respuesta);
+            f.EstadoFiscal = EstadoFiscalFactura.Rechazada;
+            await db.SaveChangesAsync();
+            return "ARCA rechazó la factura. No obtuvo CAE. " + intento.Errores;
+        }
+        catch (Exception ex)
+        {
+            if (intento.Resultado != "A") intento.Resultado = "U";
+            intento.Errores = "Resultado pendiente de recuperación.";
+            try { await db.SaveChangesAsync(); } catch {/* Sigue existiendo la reserva P guardada antes del envío. */}
+            throw new InvalidOperationException("No se pudo completar o guardar la respuesta. No cree otra factura: vuelva a Autorizar ARCA en esta misma para recuperar el resultado.", ex);
+        }
     }
 
-    private static string LeerObservaciones(XDocument xml)
+    public static void ValidarCoincidencia(Factura f, int pv, long numero, XElement r)
     {
-        var observaciones = xml
-            .Descendants()
-            .Where(x => x.Name.LocalName == "Obs")
-            .Select(x =>
-            {
-                var codigo = x.Elements().FirstOrDefault(e => e.Name.LocalName == "Code")?.Value;
-                var mensaje = x.Elements().FirstOrDefault(e => e.Name.LocalName == "Msg")?.Value;
-
-                return $"Observación {codigo}: {mensaje}";
-            })
-            .ToList();
-
-        return string.Join(Environment.NewLine, observaciones);
+        bool Igual(string campo, string esperado) => ArcaWsfeClient.Valor(r, campo) == esperado;
+        bool Importe(string campo, decimal esperado) => decimal.TryParse(ArcaWsfeClient.Valor(r, campo), NumberStyles.Number, CultureInfo.InvariantCulture, out var valor) && valor == esperado;
+        if (!Igual("CbteTipo", ((int)f.TipoComprobante).ToString()) || !Igual("PtoVta", pv.ToString()) || !Igual("CbteDesde", numero.ToString()) || !Igual("CbteHasta", numero.ToString()) ||
+            !Igual("Concepto", "2") || !Igual("CbteFch", f.FechaEmision.ToString("yyyyMMdd")) || !Igual("DocTipo", f.DocTipoReceptorArca.ToString()!) || !Igual("DocNro", f.DocNroReceptorArca.ToString()!) ||
+            !Importe("ImpTotal", f.Total) || !Importe("ImpNeto", f.Subtotal) || !Importe("ImpIVA", f.ImporteIva) || !Igual("MonId", "PES") || !Importe("MonCotiz", 1m) ||
+            !Importe("ImpTrib", 0m) || !Importe("ImpTotConc", 0m) || !Importe("ImpOpEx", 0m) || !Igual("Resultado", "A") ||
+            !Igual("FchServDesde", new DateTime(f.PeriodoAnio, f.PeriodoMes, 1).ToString("yyyyMMdd")) ||
+            !Igual("FchServHasta", new DateTime(f.PeriodoAnio, f.PeriodoMes, 1).AddMonths(1).AddDays(-1).ToString("yyyyMMdd")) ||
+            !Igual("FchVtoPago", f.FechaVencimiento.ToString("yyyyMMdd")) ||
+            string.IsNullOrWhiteSpace(ArcaWsfeClient.Valor(r, "CodAutorizacion")) || !Igual("EmisionTipo", "CAE"))
+            throw new InvalidOperationException("El comprobante de ARCA no coincide con el intento local. No se vinculó ni emitió otro comprobante.");
     }
 
-    private async Task<string?> ObtenerAvisoLimiteMensualAsync(Factura factura, AmbienteFiscal ambiente)
+    private static async Task Aceptar(AppDbContext db, Factura f, FacturaElectronica i, PuntoVenta pv, long numero, string cae, string vencimiento, string respuesta)
     {
-        if (factura.TipoComprobante is not (TipoComprobante.FacturaA or TipoComprobante.FacturaB or TipoComprobante.FacturaC))
-            return null;
+        if (cae.Length != 14 || !long.TryParse(cae, out var codigo) || codigo <= 0 || !DateTime.TryParseExact(vencimiento, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var fecha))
+            throw new InvalidOperationException("CAE o vencimiento no válido. Se debe recuperar el comprobante.");
+        f.PuntoVentaId = pv.Id; f.PuntoVentaNumeroSnapshot = pv.Numero; f.NumeroComprobante = numero;
+        f.NumeroComprobanteFormateado = $"{pv.Numero:00000}-{numero:00000000}"; f.EstadoFiscal = EstadoFiscalFactura.Autorizada; f.UpdatedAt = DateTime.Now;
+        i.Resultado = "A"; i.CAE = cae; i.FechaVencimientoCAE = fecha; i.FechaAutorizacion = DateTime.Now;
+        i.ResponseResumen = respuesta; i.Observaciones = ArcaWsfeClient.Mensajes(XDocument.Parse(respuesta)); i.Errores = null; i.QrUrl = ArcaQr.CrearUrl(f, cae); i.UpdatedAt = DateTime.Now;
+        await db.SaveChangesAsync();
+    }
 
-        // Leer el valor guardado para no usar una configuración antigua del contexto.
-        var limite = await _dbContext.Empresas.AsNoTracking()
-            .Where(x => x.Id == factura.EmpresaId)
-            .Select(x => x.LimiteFacturacionMensualArca).SingleAsync();
+    private static string Resumen(Factura f, FacturaElectronica i, bool recuperada) =>
+        $"Factura {(recuperada ? "recuperada sin emitir nuevamente" : "autorizada")} en {f.AmbienteArca}." + Environment.NewLine +
+        $"Comprobante: {f.NumeroComprobanteFormateado}. Total: {f.Total:C2}. CAE: {i.CAE}. Vence: {i.FechaVencimientoCAE:dd/MM/yyyy}.";
+    private static Task<Factura> Cargar(AppDbContext db, int id) => db.Facturas.Include(x => x.Empresa).Include(x => x.Cliente).Include(x => x.Items).SingleAsync(x => x.Id == id);
+    private static async Task<string?> Aviso(AppDbContext db, Factura f, AmbienteFiscal ambiente)
+    {
+        var limite = await db.Empresas.AsNoTracking().Where(x => x.Id == f.EmpresaId).Select(x => x.LimiteFacturacionMensualArca).SingleAsync();
         if (limite is null or <= 0) return null;
-
-        var inicio = new DateTime(factura.FechaEmision.Year, factura.FechaEmision.Month, 1);
-        var fin = inicio.AddMonths(1);
-        // El CAE aceptado es la fuente del acumulado, incluso si el registro se elimina
-        // o se marca anulado localmente después de haber sido autorizado.
-        var acumulado = await _dbContext.FacturasElectronicas.AsNoTracking()
-            .Where(x => x.Resultado == "A" && x.CAE != "" &&
-                x.Factura.EmpresaId == factura.EmpresaId && x.FacturaId != factura.Id &&
-                x.Factura.FechaEmision >= inicio && x.Factura.FechaEmision < fin &&
-                (x.Factura.TipoComprobante == TipoComprobante.FacturaA ||
-                 x.Factura.TipoComprobante == TipoComprobante.FacturaB ||
-                 x.Factura.TipoComprobante == TipoComprobante.FacturaC) &&
-                _dbContext.PuntosVenta.Any(p => p.Id == x.Factura.PuntoVentaId && p.Ambiente == ambiente))
-            .SumAsync(x => (decimal?)x.Factura.Total) ?? 0m;
-        var estado = LimiteFacturacionMensual.Evaluar(limite, acumulado, factura.Total);
-        return estado?.DebeAvisar == true
-            ? $"Facturación ARCA de {inicio:MM/yyyy} · Ambiente: {ambiente}." + Environment.NewLine + estado.Mensaje
-            : null;
+        var inicio = new DateTime(f.FechaEmision.Year, f.FechaEmision.Month, 1); var fin = inicio.AddMonths(1);
+        var acumulado = await db.FacturasElectronicas.AsNoTracking().Where(x => x.Resultado == "A" && x.CAE != "" && x.Factura.EmpresaId == f.EmpresaId && x.FacturaId != f.Id &&
+            x.Factura.FechaEmision >= inicio && x.Factura.FechaEmision < fin && (x.Factura.TipoComprobante == TipoComprobante.FacturaA || x.Factura.TipoComprobante == TipoComprobante.FacturaB || x.Factura.TipoComprobante == TipoComprobante.FacturaC) &&
+            (x.Ambiente == ambiente || x.Ambiente == null && db.PuntosVenta.Any(p => p.Id == x.Factura.PuntoVentaId && p.Ambiente == ambiente))).SumAsync(x => (decimal?)x.Factura.Total) ?? 0m;
+        var estado = LimiteFacturacionMensual.Evaluar(limite, acumulado, f.Total)!;
+        return estado.DebeAvisar ? $"Facturación ARCA de {inicio:MM/yyyy} · {ambiente}." + Environment.NewLine + estado.Mensaje : null;
     }
-
-    private static string FormatoDecimal(decimal valor)
+    public async Task<string> VerificarAutorizadaAsync(int facturaId)
     {
-        return valor.ToString("0.00", CultureInfo.InvariantCulture);
+        await using var db = await factory.CreateDbContextAsync();
+        var f = await Cargar(db, facturaId);
+        var i = await db.FacturasElectronicas.SingleAsync(x => x.FacturaId == facturaId);
+        if (f.EstadoFiscal != EstadoFiscalFactura.Autorizada || f.NumeroComprobante is null || f.PuntoVentaId is null || f.AmbienteArca is null)
+            throw new InvalidOperationException("La factura no tiene una autorización y ambiente identificados.");
+        var pv = await db.PuntosVenta.SingleAsync(x => x.Id == f.PuntoVentaId);
+        if (pv.Ambiente != f.AmbienteArca || pv.EmpresaId != f.EmpresaId)
+            throw new InvalidOperationException("El punto de venta no coincide con el ambiente o empresa del comprobante.");
+        await using var bloqueo = await ArcaSqlLock.Adquirir(db, $"ARCA-EMISION:{f.Empresa.Cuit}:{f.AmbienteArca}");
+        var auth = await authService.ObtenerCredencialesAsync(f.EmpresaId, f.AmbienteArca.Value);
+        var r = await wsfe.Consultar(auth, f.AmbienteArca.Value, pv.Numero, (int)f.TipoComprobante, f.NumeroComprobante.Value)
+            ?? throw new InvalidOperationException("ARCA no encontró ese comprobante. No se modificaron sus datos locales.");
+        if (ArcaWsfeClient.Valor(r, "CodAutorizacion") != i.CAE || ArcaWsfeClient.Valor(r, "Resultado") != "A")
+            throw new InvalidOperationException("El CAE consultado no coincide con el guardado.");
+        if (f.DocTipoReceptorArca is null)
+        {
+            // Los comprobantes del flujo anterior podían conservar el total como
+            // subtotal aunque se hubiera enviado IVA. Recuperar sus datos oficiales.
+            var neto = decimal.Parse(ArcaWsfeClient.Valor(r, "ImpNeto")!, CultureInfo.InvariantCulture);
+            var iva = decimal.Parse(ArcaWsfeClient.Valor(r, "ImpIVA")!, CultureInfo.InvariantCulture);
+            if (neto + iva != f.Total || f.Items.Sum(x => x.Total) != f.Total || f.Items.Count == 0)
+                throw new InvalidOperationException("Los importes consultados no coinciden con el total local.");
+            var tasas = r.Descendants().Where(x => x.Name.LocalName == "AlicIva").Select(x => ArcaWsfeClient.Valor(x, "Id")).Distinct().ToList();
+            if (tasas.Count > 1) throw new InvalidOperationException("La factura anterior tiene varias alícuotas. Requiere conciliar sus ítems antes de actualizar.");
+            var tasa = tasas.FirstOrDefault() switch { "3" => 0m, "4" => 10.5m, "5" => 21m, "6" => 27m, "8" => 5m, "9" => 2.5m, null when iva == 0 => 0m, _ => throw new InvalidOperationException("Alícuota consultada no reconocida.") };
+            f.DocTipoReceptorArca = int.Parse(ArcaWsfeClient.Valor(r, "DocTipo")!);
+            f.DocNroReceptorArca = long.Parse(ArcaWsfeClient.Valor(r, "DocNro")!);
+            f.CondicionIvaReceptorArca = int.TryParse(ArcaWsfeClient.Valor(r, "CondicionIVAReceptorId"), out var condicion) ? condicion : 5;
+            f.Subtotal = neto; f.ImporteIva = iva;
+            foreach (var item in f.Items)
+            {
+                item.AlicuotaIva = tasa; item.Subtotal = decimal.Round(item.Total / (1 + tasa / 100m), 2, MidpointRounding.AwayFromZero);
+                item.ImporteIva = item.Total - item.Subtotal;
+            }
+            var ultimo = f.Items.Last(); var diferencia = neto - f.Items.Sum(x => x.Subtotal);
+            ultimo.Subtotal += diferencia; ultimo.ImporteIva -= diferencia;
+            foreach (var item in f.Items) item.PrecioUnitario = decimal.Round(item.Subtotal / item.Cantidad, 2);
+            f.ClienteCuitSnapshot = f.DocTipoReceptorArca == 80 ? f.DocNroReceptorArca.ToString() : null;
+            f.ClienteDocumentoSnapshot = f.DocTipoReceptorArca is not (80 or 99) ? f.DocNroReceptorArca.ToString() : null;
+        }
+        ValidarCoincidencia(f, pv.Numero, f.NumeroComprobante.Value, r);
+        i.QrUrl = ArcaQr.CrearUrl(f, i.CAE); i.Ambiente = f.AmbienteArca; i.ResponseResumen = r.ToString();
+        await db.SaveChangesAsync();
+        return $"Comprobante verificado en {f.AmbienteArca}. Datos fiscales y QR conciliados; no se emitió otra factura.";
     }
 
-    private class ArcaAuthData
+    public async Task<string> ProbarConfiguracionAsync(int empresaId, AmbienteFiscal ambiente)
     {
-        public long Cuit { get; set; }
-        public string Token { get; set; } = string.Empty;
-        public string Sign { get; set; } = string.Empty;
+        await using var db = await factory.CreateDbContextAsync();
+        var pv = await db.PuntosVenta.AsNoTracking().SingleOrDefaultAsync(x => x.EmpresaId == empresaId && x.Ambiente == ambiente && !x.IsDeleted && x.Activo && x.Predeterminado && x.Tipo == TipoPuntoVenta.Electronico)
+            ?? throw new InvalidOperationException("Configure un punto de venta electrónico predeterminado.");
+        var auth = await authService.ObtenerCredencialesAsync(empresaId, ambiente);
+        await wsfe.ProbarPuntoVenta(auth, ambiente, pv.Numero);
+        return $"Conexión correcta en {ambiente}: certificado, WSAA y punto de venta {pv.Numero:00000} disponibles. Esta prueba no emite comprobantes.";
     }
+    public async Task<string> ConsultarUltimoComprobanteAsync(int empresaId, AmbienteFiscal ambiente, int puntoVenta, int tipoComprobante) =>
+        $"Último comprobante en {ambiente}: {await wsfe.Ultimo(await authService.ObtenerCredencialesAsync(empresaId, ambiente), ambiente, puntoVenta, tipoComprobante)}.";
+    public Task<string> SolicitarCaeFacturaBPruebaAsync(int empresaId, AmbienteFiscal ambiente, int puntoVenta) =>
+        Task.FromResult("Pruebe el CAE desde Facturación mensual en Homologación. No se emiten comprobantes sin registro local.");
 }

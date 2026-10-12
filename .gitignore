@@ -33,6 +33,7 @@ appsettings.Development.json
 *.p12
 *.cer
 *.key
+**/App_Data/
 
 # Database files
 *.mdf

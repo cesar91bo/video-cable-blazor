@@ -11,20 +11,34 @@ namespace VideoCable.Infrastructure.Services.Arca;
 
 public class ArcaAuthService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IDbContextFactory<AppDbContext> _factory;
+    private readonly ArcaSecretos _secretos;
     private readonly IHttpClientFactory _httpClientFactory;
 
     public ArcaAuthService(
-        AppDbContext dbContext,
-        IHttpClientFactory httpClientFactory)
+        IDbContextFactory<AppDbContext> factory,
+        IHttpClientFactory httpClientFactory,
+        ArcaSecretos secretos)
     {
-        _dbContext = dbContext;
+        _factory = factory;
+        _secretos = secretos;
         _httpClientFactory = httpClientFactory;
     }
 
     public async Task<string> ObtenerTokenSignAsync(int empresaId, AmbienteFiscal ambiente, string servicio = "wsfe")
     {
-        var tokenVigente = await _dbContext.AfipTokens
+        var datos = await ObtenerCredencialesAsync(empresaId, ambiente, servicio);
+        return $"WSAA disponible para {ambiente}. Token válido hasta {datos.FechaHasta:dd/MM/yyyy HH:mm}.";
+    }
+
+    public async Task<CredencialesArca> ObtenerCredencialesAsync(int empresaId, AmbienteFiscal ambiente, string servicio = "wsfe")
+    {
+        if (!Enum.IsDefined(ambiente)) throw new InvalidOperationException("Ambiente ARCA no válido.");
+        await using var db = await _factory.CreateDbContextAsync();
+        await using var bloqueo = await ArcaSqlLock.Adquirir(db, $"ARCA-AUTH:{empresaId}:{ambiente}:{servicio}");
+        var empresa = await db.Empresas.AsNoTracking().SingleAsync(x => x.Id == empresaId);
+        if (!ArcaFiscalRules.CuitValido(empresa.Cuit)) throw new InvalidOperationException("CUIT de empresa no válido.");
+        var tokenVigente = await db.AfipTokens
             .AsNoTracking()
             .Where(x =>
                 x.EmpresaId == empresaId &&
@@ -36,16 +50,11 @@ public class ArcaAuthService
 
         if (tokenVigente is not null)
         {
-            return
-                "Token vigente reutilizado correctamente." + Environment.NewLine +
-                $"Servicio: {tokenVigente.Servicio}" + Environment.NewLine +
-                $"Válido desde: {tokenVigente.FechaDesde:dd/MM/yyyy HH:mm}" + Environment.NewLine +
-                $"Válido hasta: {tokenVigente.FechaHasta:dd/MM/yyyy HH:mm}" + Environment.NewLine +
-                $"Token largo: {tokenVigente.Token.Length} caracteres" + Environment.NewLine +
-                $"Sign largo: {tokenVigente.Sign.Length} caracteres";
+            return new CredencialesArca(long.Parse(ArcaFiscalRules.SoloNumeros(empresa.Cuit)),
+                _secretos.Leer(tokenVigente.Token), _secretos.Leer(tokenVigente.Sign), tokenVigente.FechaHasta);
         }
 
-        var certificadoEmpresa = await _dbContext.CertificadosEmpresa
+        var certificadoEmpresa = await db.CertificadosEmpresa
             .AsNoTracking()
             .Where(x =>
                 x.EmpresaId == empresaId &&
@@ -56,23 +65,9 @@ public class ArcaAuthService
             .FirstOrDefaultAsync();
 
         if (certificadoEmpresa is null)
-            return "No se encontró certificado activo para la empresa y ambiente.";
+            throw new InvalidOperationException($"Cargue un certificado activo de {ambiente} en Configuración ARCA.");
 
-        if (string.IsNullOrWhiteSpace(certificadoEmpresa.RutaArchivo))
-            return "El certificado no tiene ruta configurada.";
-
-        if (!File.Exists(certificadoEmpresa.RutaArchivo))
-            return $"No existe el archivo del certificado: {certificadoEmpresa.RutaArchivo}";
-
-        var certificado = new X509Certificate2(
-            certificadoEmpresa.RutaArchivo,
-            certificadoEmpresa.Password,
-            X509KeyStorageFlags.MachineKeySet |
-            X509KeyStorageFlags.PersistKeySet |
-            X509KeyStorageFlags.Exportable);
-
-        if (!certificado.HasPrivateKey)
-            return "El certificado fue cargado, pero no tiene clave privada.";
+        using var certificado = _secretos.Abrir(certificadoEmpresa);
 
         var traXml = CrearLoginTicketRequest(servicio);
 
@@ -87,23 +82,17 @@ public class ArcaAuthService
             EmpresaId = empresaId,
             Ambiente = ambiente,
             Servicio = servicio,
-            Token = datos.Token,
-            Sign = datos.Sign,
+            Token = _secretos.Proteger(datos.Token),
+            Sign = _secretos.Proteger(datos.Sign),
             FechaDesde = datos.FechaDesde,
             FechaHasta = datos.FechaHasta,
             CreatedAt = DateTime.Now
         };
 
-        _dbContext.AfipTokens.Add(nuevoToken);
-        await _dbContext.SaveChangesAsync();
+        db.AfipTokens.Add(nuevoToken);
+        await db.SaveChangesAsync();
 
-        return
-            "WSAA respondió correctamente." + Environment.NewLine +
-            $"Servicio: {servicio}" + Environment.NewLine +
-            $"Válido desde: {datos.FechaDesde:dd/MM/yyyy HH:mm}" + Environment.NewLine +
-            $"Válido hasta: {datos.FechaHasta:dd/MM/yyyy HH:mm}" + Environment.NewLine +
-            $"Token largo: {datos.Token.Length} caracteres" + Environment.NewLine +
-            $"Sign largo: {datos.Sign.Length} caracteres";
+        return new CredencialesArca(long.Parse(ArcaFiscalRules.SoloNumeros(empresa.Cuit)), datos.Token, datos.Sign, datos.FechaHasta);
     }
 
     private static string CrearLoginTicketRequest(string servicio)
@@ -160,7 +149,7 @@ public class ArcaAuthService
         </soapenv:Envelope>
         """;
 
-        var client = _httpClientFactory.CreateClient();
+        var client = _httpClientFactory.CreateClient("Arca");
 
         using var request = new HttpRequestMessage(HttpMethod.Post, url);
         request.Content = new StringContent(soap, Encoding.UTF8, "text/xml");
@@ -172,7 +161,7 @@ public class ArcaAuthService
         if (!response.IsSuccessStatusCode)
         {
             throw new Exception(
-                $"WSAA respondió HTTP {(int)response.StatusCode}. Respuesta: {responseText}");
+                $"WSAA respondió HTTP {(int)response.StatusCode}. Revise certificado, relación del servicio y ambiente.");
         }
 
         return responseText;
@@ -188,7 +177,7 @@ public class ArcaAuthService
             ?.Value;
 
         if (string.IsNullOrWhiteSpace(loginCmsReturn))
-            throw new Exception($"No se encontró loginCmsReturn en la respuesta WSAA. Respuesta: {soapResponse}");
+            throw new Exception("WSAA no devolvió un ticket de acceso. Revise la relación del certificado con wsfe.");
 
         var ticketXml = XDocument.Parse(loginCmsReturn);
 
@@ -229,3 +218,5 @@ public class ArcaAuthService
         public DateTime FechaHasta { get; set; }
     }
 }
+
+public sealed record CredencialesArca(long Cuit, string Token, string Sign, DateTime FechaHasta);

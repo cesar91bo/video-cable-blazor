@@ -1,0 +1,93 @@
+@page "/configuracion-arca"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using VideoCable.Domain.Entities
+@using VideoCable.Domain.Enums
+@using VideoCable.Infrastructure.Data
+@using VideoCable.Infrastructure.Services.Arca
+@inject IDbContextFactory<AppDbContext> DbFactory
+@inject ArcaSecretos Secretos
+@inject ArcaFacturaService Facturador
+
+<PageTitle>Configuración ARCA</PageTitle>
+<div class="page-header"><div><h1>Configuración ARCA</h1><p class="text-muted mb-0">Certificados y puntos de venta por ambiente.</p></div><a class="btn btn-outline-secondary" href="configuracion">Volver a configuración</a></div>
+@if (mensaje is not null) { <div class="alert alert-info mt-3" style="white-space: pre-wrap">@mensaje</div> }
+@if (error is not null) { <div class="alert alert-danger mt-3">@error</div> }
+@if (empresa is not null)
+{
+    <div class="alert @(empresa.AmbienteArca == AmbienteFiscal.Produccion ? "alert-danger" : "alert-info") mt-3">Ambiente de emisión guardado: <strong>@empresa.AmbienteArca</strong>. Las pruebas de conexión no emiten comprobantes. Cambie el ambiente desde Configuración.</div>
+    <div class="card mt-3"><div class="card-body">
+        <label class="form-label">Ambiente a configurar o probar</label>
+        <select class="form-select" @bind="ambiente" @bind:after="CambiarAmbiente" disabled="@ocupado"><option value="@AmbienteFiscal.Homologacion">Homologación</option><option value="@AmbienteFiscal.Produccion">Producción</option></select>
+        <h5 class="mt-4">Certificado con clave privada (.pfx / .p12)</h5>
+        @foreach (var c in certificados)
+        { <p class="small mb-1">@(c.Activo ? "Activo" : "Anterior") · @c.Subject · Vence: @c.ValidTo?.ToString("dd/MM/yyyy")</p> }
+        <InputFile @key="ambiente" OnChange="LeerArchivo" accept=".pfx,.p12" disabled="@ocupado" />
+        <label class="form-label mt-2">Contraseña del PFX</label>
+        <input class="form-control" type="password" @bind="password" autocomplete="new-password" disabled="@ocupado" />
+        <div class="form-text">El archivo y su contraseña se guardan protegidos. No se muestran ni se descargan desde esta pantalla.</div>
+        <button class="btn btn-primary mt-3" @onclick="GuardarCertificado" disabled="@(ocupado || archivo is null)">Guardar certificado de @ambiente</button>
+        <hr />
+        <h5>Punto de venta electrónico predeterminado</h5>
+        <InputNumber class="form-control" @bind-Value="numeroPunto" min="1" max="99999" disabled="@ocupado" />
+        <div class="form-text">Número habilitado en ARCA para emitir por web service con CAE. Guardarlo aquí no lo da de alta en ARCA.</div>
+        <button class="btn btn-primary mt-3" @onclick="GuardarPunto" disabled="@ocupado">Guardar punto de venta</button>
+        <button class="btn btn-outline-success mt-3 ms-2" @onclick="Probar" disabled="@ocupado">Probar conexión sin emitir</button>
+    </div></div>
+}
+
+@code {
+    private Empresa? empresa;
+    private List<CertificadoEmpresa> certificados = new();
+    private AmbienteFiscal ambiente = AmbienteFiscal.Homologacion;
+    private byte[]? archivo;
+    private string password = "";
+    private int numeroPunto;
+    private bool ocupado;
+    private string? mensaje, error;
+    protected override async Task OnInitializedAsync()
+    {
+        try { await using var db = await DbFactory.CreateDbContextAsync(); empresa = await db.Empresas.AsNoTracking().FirstOrDefaultAsync(x => x.Activa && !x.IsDeleted); if (empresa is null) throw new InvalidOperationException("Configure una empresa activa primero."); ambiente = empresa.AmbienteArca; await Cargar(); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    private async Task Cargar()
+    {
+        if (empresa is null) return;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        // Proyección: nunca traer contraseñas ni PFX al componente.
+        certificados = await db.CertificadosEmpresa.AsNoTracking().Where(x => x.EmpresaId == empresa.Id && x.Ambiente == ambiente && !x.IsDeleted)
+            .Select(x => new CertificadoEmpresa { Activo = x.Activo, Subject = x.Subject, ValidTo = x.ValidTo }).ToListAsync();
+        numeroPunto = await db.PuntosVenta.Where(x => x.EmpresaId == empresa.Id && x.Ambiente == ambiente && !x.IsDeleted && x.Activo && x.Predeterminado).Select(x => x.Numero).FirstOrDefaultAsync();
+    }
+    private async Task CambiarAmbiente() { archivo = null; password = ""; mensaje = null; error = null; await Cargar(); }
+    private async Task LeerArchivo(InputFileChangeEventArgs e)
+    {
+        error = null; archivo = null;
+        try { if (Path.GetExtension(e.File.Name).ToLowerInvariant() is not (".pfx" or ".p12")) throw new InvalidOperationException("Seleccione un archivo .pfx o .p12."); await using var stream = e.File.OpenReadStream(1024 * 1024); using var buffer = new MemoryStream(); await stream.CopyToAsync(buffer); archivo = buffer.ToArray(); }
+        catch (Exception) { error = "No se pudo leer el certificado. Use un PFX/P12 de hasta 1 MB."; }
+    }
+    private Task GuardarCertificado() => Ejecutar(async () =>
+    {
+        try { mensaje = await Secretos.GuardarCertificadoAsync(empresa!.Id, ambiente, archivo!, password); }
+        finally { archivo = null; password = ""; }
+        await Cargar();
+    });
+    private Task GuardarPunto() => Ejecutar(async () =>
+    {
+        if (numeroPunto is < 1 or > 99999) throw new InvalidOperationException("El punto de venta debe estar entre 1 y 99999.");
+        await using var db = await DbFactory.CreateDbContextAsync();
+        await using var bloqueo = await ArcaSqlLock.Adquirir(db, $"ARCA-EMISION:{empresa!.Cuit}:{ambiente}");
+        var puntos = await db.PuntosVenta.Where(x => x.EmpresaId == empresa.Id && x.Ambiente == ambiente).ToListAsync();
+        foreach (var p in puntos) p.Predeterminado = false;
+        var punto = puntos.FirstOrDefault(x => x.Numero == numeroPunto);
+        if (punto is null) { punto = new PuntoVenta { EmpresaId = empresa.Id, Ambiente = ambiente, Numero = numeroPunto, CreatedAt = DateTime.Now }; db.PuntosVenta.Add(punto); }
+        punto.Descripcion = $"ARCA {ambiente} {numeroPunto:00000}"; punto.Tipo = TipoPuntoVenta.Electronico; punto.Activo = true; punto.IsDeleted = false; punto.Predeterminado = true;
+        await db.SaveChangesAsync(); mensaje = "Punto de venta guardado. Use Probar conexión para verificar su habilitación.";
+    });
+    private Task Probar() => Ejecutar(async () => mensaje = await Facturador.ProbarConfiguracionAsync(empresa!.Id, ambiente));
+    private async Task Ejecutar(Func<Task> accion)
+    {
+        if (ocupado || empresa is null) return; ocupado = true; mensaje = null; error = null;
+        try { await accion(); } catch (System.Security.Cryptography.CryptographicException) { error = "No se pudo abrir o proteger el certificado. Revise su contraseña y las claves de protección del servidor."; } catch (Exception ex) { error = ex.Message; } finally { ocupado = false; }
+    }
+}

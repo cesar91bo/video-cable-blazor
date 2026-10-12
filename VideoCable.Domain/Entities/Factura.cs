@@ -34,6 +34,10 @@ public class Factura : AuditableEntity
 
     public EstadoFiscalFactura EstadoFiscal { get; set; } = EstadoFiscalFactura.NoRequiereAutorizacion;
     public EstadoCobranzaFactura EstadoCobranza { get; set; } = EstadoCobranzaFactura.Pendiente;
+    public AmbienteFiscal? AmbienteArca { get; set; }
+    public int? DocTipoReceptorArca { get; set; }
+    public long? DocNroReceptorArca { get; set; }
+    public int? CondicionIvaReceptorArca { get; set; }
 
     public string? Observaciones { get; set; }
 

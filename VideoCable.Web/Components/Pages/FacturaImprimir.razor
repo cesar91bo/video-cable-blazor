@@ -5,6 +5,7 @@
 @using VideoCable.Domain.Entities
 @using VideoCable.Domain.Enums
 @using VideoCable.Infrastructure.Data
+@using VideoCable.Infrastructure.Services.Arca
 
 @inject AppDbContext DbContext
 @inject IJSRuntime JSRuntime
@@ -29,7 +30,7 @@ else if (factura is not null)
             Volver
         </button>
 
-        <button class="btn btn-primary" @onclick="Imprimir">
+        <button class="btn btn-primary" @onclick="Imprimir" disabled="@(factura.TipoComprobante != TipoComprobante.FacturaX && factura.EstadoFiscal != EstadoFiscalFactura.Autorizada)">
             Imprimir / Guardar PDF
         </button>
     </div>
@@ -69,9 +70,14 @@ else if (factura is not null)
         @if (factura.TipoComprobante != TipoComprobante.FacturaX &&
              factura.EstadoFiscal != EstadoFiscalFactura.Autorizada)
         {
-            <div class="alert alert-warning no-print">
+            <div class="alert alert-warning">
                 Esta factura todavía no está autorizada por ARCA. No debería imprimirse como comprobante fiscal.
             </div>
+        }
+
+        @if (factura.TipoComprobante != TipoComprobante.FacturaX && factura.AmbienteArca != AmbienteFiscal.Produccion)
+        {
+            <div class="alert alert-warning fw-bold">@(factura.AmbienteArca == AmbienteFiscal.Homologacion ? "HOMOLOGACIÓN — COMPROBANTE DE PRUEBA SIN VALIDEZ FISCAL" : "AMBIENTE NO IDENTIFICADO — VERIFICAR ANTES DE UTILIZAR")</div>
         }
 
         <div class="cliente-box">
@@ -144,6 +150,10 @@ else if (factura is not null)
                 {
                     <div><strong>CAE:</strong> @facturaElectronica.CAE</div>
                     <div><strong>Vencimiento CAE:</strong> @facturaElectronica.FechaVencimientoCAE.ToString("dd/MM/yyyy")</div>
+                    @if (!string.IsNullOrWhiteSpace(qrImagen))
+                    {
+                        <img src="@qrImagen" alt="Código QR del comprobante electrónico ARCA" width="160" height="160" />
+                    }
                 }
                 else
                 {
@@ -169,6 +179,7 @@ else if (factura is not null)
 
     private Factura? factura;
     private FacturaElectronica? facturaElectronica;
+    private string? qrImagen;
 
     protected override async Task OnInitializedAsync()
     {
@@ -188,6 +199,11 @@ else if (factura is not null)
             facturaElectronica = await DbContext.FacturasElectronicas
                 .AsNoTracking()
                 .FirstOrDefaultAsync(x => x.FacturaId == factura.Id);
+            if (factura.EstadoFiscal == EstadoFiscalFactura.Autorizada && facturaElectronica?.CAE.Length > 0)
+            {
+                var url = facturaElectronica.QrUrl ?? ArcaQr.CrearUrl(factura, facturaElectronica.CAE);
+                qrImagen = ArcaQr.Imagen(url);
+            }
         }
         catch (Exception ex)
         {
@@ -200,6 +216,7 @@ else if (factura is not null)
 
     private async Task Imprimir()
     {
+        if (factura is null || factura.TipoComprobante != TipoComprobante.FacturaX && factura.EstadoFiscal != EstadoFiscalFactura.Autorizada) return;
         await JSRuntime.InvokeVoidAsync("window.print");
     }
 

@@ -11,6 +11,7 @@
 @inject AppDbContext DbContext
 @inject ArcaFacturaService ArcaFacturaService
 @inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
 
 <PageTitle>Facturación mensual</PageTitle>
 
@@ -340,19 +341,24 @@ else
                                 {
                                     <button class="btn btn-sm btn-outline-primary"
                                             @onclick="() => ConvertirFacturaB(factura.Id)">
-                                        Pasar a fiscal
+                                        Preparar factura fiscal
                                     </button>
                                 }
                                 else if (factura.EstadoFiscal == EstadoFiscalFactura.Autorizada)
                                 {
-                                    <span class="badge bg-success">CAE OK</span>
+                                    <span class="badge @(factura.AmbienteArca == AmbienteFiscal.Produccion ? "bg-success" : "bg-warning text-dark")">CAE · @(factura.AmbienteArca?.ToString() ?? "Ambiente sin identificar")</span>
+                                    <button class="btn btn-sm btn-outline-secondary" disabled="@autorizandoArca" @onclick="() => VerificarArca(factura.Id)">Verificar datos ARCA</button>
                                 }
                                 else
                                 {
+                                    @if (factura.EstadoFiscal is EstadoFiscalFactura.Rechazada or EstadoFiscalFactura.PendienteAutorizacion)
+                                    {
+                                        <button class="btn btn-sm btn-outline-secondary" disabled="@autorizandoArca" @onclick="() => ConvertirFacturaB(factura.Id)">Actualizar datos fiscales y ambiente</button>
+                                    }
                                     <button class="btn btn-sm btn-outline-danger"
                                             disabled="@autorizandoArca"
                                             @onclick="() => AutorizarArca(factura.Id)">
-                                        Autorizar ARCA
+                                        Autorizar / recuperar ARCA
                                     </button>
                                 }
                             </td>
@@ -572,37 +578,7 @@ else
 
         try
         {
-            var factura = await DbContext.Facturas
-                .FirstAsync(x => x.Id == facturaId);
-
-            if (factura.EstadoCobranza == EstadoCobranzaFactura.Anulada)
-            {
-                mensajeArca = "No se puede fiscalizar una factura anulada.";
-                return;
-            }
-
-            if (factura.EstadoFiscal == EstadoFiscalFactura.Autorizada)
-            {
-                mensajeArca = "La factura ya está autorizada por ARCA.";
-                return;
-            }
-
-            factura.TipoComprobante = TipoComprobante.FacturaB;
-            factura.EstadoFiscal = EstadoFiscalFactura.PendienteAutorizacion;
-
-            factura.FechaEmision = DateTime.Today;
-            factura.FechaVencimiento = DateTime.Today.AddDays(10);
-
-            factura.PuntoVentaId = null;
-            factura.PuntoVentaNumeroSnapshot = null;
-            factura.NumeroComprobante = null;
-            factura.NumeroComprobanteFormateado = null;
-
-            factura.UpdatedAt = DateTime.Now;
-
-            await DbContext.SaveChangesAsync();
-
-            mensajeArca = "Factura convertida a Factura B pendiente de autorización ARCA.";
+            mensajeArca = await ArcaFacturaService.PrepararFacturaAsync(facturaId);
 
             await CargarFacturasPeriodo();
         }
@@ -616,6 +592,14 @@ else
     private void VerFactura(int facturaId)
     {
         Navigation.NavigateTo($"/factura-imprimir/{facturaId}");
+    }
+
+    private async Task VerificarArca(int facturaId)
+    {
+        if (autorizandoArca) return; autorizandoArca = true;
+        try { mensajeArca = await ArcaFacturaService.VerificarAutorizadaAsync(facturaId); await CargarFacturasPeriodo(); }
+        catch (Exception ex) { mensajeArca = ex.Message; }
+        finally { autorizandoArca = false; }
     }
 
     private Task ContinuarAutorizacionArca() => facturaAvisoArcaId.HasValue
@@ -641,9 +625,11 @@ else
 
         try
         {
+            var ambiente = await DbContext.Facturas.AsNoTracking().Where(x => x.Id == facturaId)
+                .Select(x => x.AmbienteArca ?? x.Empresa.AmbienteArca).SingleAsync();
             mensajeArca = await ArcaFacturaService.AutorizarFacturaAsync(
                 facturaId,
-                AmbienteFiscal.Homologacion,
+                ambiente,
                 continuarConAvisoLimite);
 
             await CargarFacturasPeriodo();

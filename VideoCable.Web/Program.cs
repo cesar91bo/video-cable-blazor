@@ -3,18 +3,26 @@ using Microsoft.EntityFrameworkCore;
 using VideoCable.Infrastructure.Data;
 using VideoCable.Infrastructure.Data.Seed;
 using VideoCable.Infrastructure.Services.Arca;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
-builder.Services.AddScoped<ArcaCertificadoService>();
+var proteccion = builder.Services.AddDataProtection()
+    .SetApplicationName("VideoCable.ARCA")
+    .PersistKeysToFileSystem(new DirectoryInfo(builder.Configuration["Arca:DirectorioClaves"]
+        ?? Path.Combine(builder.Environment.ContentRootPath, "App_Data", "DataProtectionKeys")));
+if (OperatingSystem.IsWindows()) proteccion.ProtectKeysWithDpapi();
 
 builder.Services.AddDbContextFactory<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("Arca", client => client.Timeout = TimeSpan.FromSeconds(60));
+builder.Services.AddScoped<ArcaSecretos>();
+builder.Services.AddScoped<ArcaWsfeClient>();
 
 builder.Services.AddScoped<ArcaCertificadoService>();
 builder.Services.AddScoped<ArcaAuthService>();
@@ -26,6 +34,7 @@ using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await DatabaseSeeder.SeedAsync(context);
+    await scope.ServiceProvider.GetRequiredService<ArcaSecretos>().MigrarLegadosAsync();
 }
 
 // Configure the HTTP request pipeline.
